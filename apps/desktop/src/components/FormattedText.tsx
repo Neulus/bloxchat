@@ -4,15 +4,10 @@ import { useAuth } from "../contexts/AuthContext";
 
 interface FormattedTextProps {
   content: string;
-  username: string;
   imageUrls: string[];
 }
 
-export const FormattedText = ({
-  content,
-  username,
-  imageUrls,
-}: FormattedTextProps) => {
+export const FormattedText = ({ content, imageUrls }: FormattedTextProps) => {
   const { user } = useAuth();
 
   const normalizedContent = replaceEmojiShortcodes(content);

@@ -124,7 +124,6 @@ export const MessageItem = ({
           <div className="text-sm leading-relaxed">
             <FormattedText
               content={message.content}
-              username={message.author.name}
               imageUrls={mediaSourceUrls}
             />
           </div>
