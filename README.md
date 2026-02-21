@@ -14,10 +14,8 @@ BloxChat is a small desktop chat app for ROBLOX built with:
 
 If you just want to use the app:
 
-1. Open this repo on [GitHub](https://github.com/logixism/bloxchat).
-2. Click the **Releases** tab.
-3. Download the installer.
-4. Run the installer and open **BloxChat**.
+1. Download the installer from the latest [release](https://github.com/logixism/bloxchat/releases/latest).
+2. Run the installer and open **BloxChat**.
 
 ## Use
 
