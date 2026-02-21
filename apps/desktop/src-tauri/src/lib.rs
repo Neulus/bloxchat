@@ -56,11 +56,7 @@ fn normalize_version(version: &str) -> String {
 
 fn parse_semver_parts(version: &str) -> Option<Vec<u64>> {
     let normalized = normalize_version(version);
-    let core = normalized
-        .split(['-', '+'])
-        .next()
-        .unwrap_or("")
-        .trim();
+    let core = normalized.split(['-', '+']).next().unwrap_or("").trim();
     if core.is_empty() {
         return None;
     }
@@ -83,7 +79,10 @@ fn compare_versions(left: &str, right: &str) -> Option<Ordering> {
 }
 
 fn is_newer_version(candidate: &str, current: &str) -> bool {
-    matches!(compare_versions(candidate, current), Some(Ordering::Greater))
+    matches!(
+        compare_versions(candidate, current),
+        Some(Ordering::Greater)
+    )
 }
 
 async fn fetch_latest_release(client: &reqwest::Client) -> Result<GithubRelease, String> {
@@ -96,7 +95,10 @@ async fn fetch_latest_release(client: &reqwest::Client) -> Result<GithubRelease,
         .map_err(|e| e.to_string())?;
 
     if !response.status().is_success() {
-        return Err(format!("GitHub latest release request failed: {}", response.status()));
+        return Err(format!(
+            "GitHub latest release request failed: {}",
+            response.status()
+        ));
     }
 
     let payload = response.text().await.map_err(|e| e.to_string())?;
@@ -561,6 +563,8 @@ fn start_log_watcher(
                     .filter(|e| e.path().to_string_lossy().contains("_Player"))
                     .max_by_key(|e| e.metadata().ok().and_then(|m| m.modified().ok()))
                 {
+                    last_file = Some(latest_file.path().clone());
+
                     if let Ok(file) = File::open(latest_file.path()) {
                         let mut reader = BufReader::new(file);
                         for line_result in reader.by_ref().lines().flatten() {
