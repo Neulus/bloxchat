@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://github.com/logixism/bloxchat/blob/main/apps/desktop/app-icon.png" alt="BloxChat Logo" width="150" />
+</p>
+
 # BloxChat
 
 BloxChat is a small desktop chat app for ROBLOX built with:
@@ -10,7 +14,7 @@ BloxChat is a small desktop chat app for ROBLOX built with:
 
 If you just want to use the app:
 
-1. Open this repo on GitHub.
+1. Open this repo on [GitHub](https://github.com/logixism/bloxchat).
 2. Click the **Releases** tab.
 3. Download the installer.
 4. Run the installer and open **BloxChat**.
