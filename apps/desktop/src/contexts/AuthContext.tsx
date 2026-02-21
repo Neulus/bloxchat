@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   ReactNode,
 } from "react";
@@ -21,13 +22,59 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<AuthContextValue["user"]>(null);
   const [loading, setLoading] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const isRefreshingRef = useRef(false);
   const utils = trpc.useUtils();
+
+  const applyAuthState = async (data: {
+    jwt: string;
+    user: { id: string; name: string; picture: string };
+  }) => {
+    setUser(data.user);
+    await setAuthSession(data);
+  };
+
+  const clearAuthState = async () => {
+    setUser(null);
+    await setAuthSession(null);
+  };
+
+  const refreshMutation = trpc.auth.refresh.useMutation();
+
+  const refreshSession = async ({
+    clearOnAnyFailure = false,
+  }: {
+    clearOnAnyFailure?: boolean;
+  } = {}) => {
+    if (isRefreshingRef.current) return false;
+
+    const saved = await getAuthSession();
+    if (!saved?.jwt) {
+      await clearAuthState();
+      return false;
+    }
+
+    try {
+      isRefreshingRef.current = true;
+      const data = await refreshMutation.mutateAsync({ jwt: saved.jwt });
+      await applyAuthState(data);
+      return true;
+    } catch (err) {
+      const code = (err as { data?: { code?: string } })?.data?.code;
+      if (clearOnAnyFailure || code === "UNAUTHORIZED") {
+        await clearAuthState();
+      }
+      return false;
+    } finally {
+      isRefreshingRef.current = false;
+    }
+  };
 
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async (data) => {
-      setUser(data.user);
+      await applyAuthState(data);
+      await refreshSession();
       setLoading(false);
-      await setAuthSession(data);
     },
     onError: (err) => {
       console.error("Login failed", err);
@@ -35,27 +82,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     },
   });
 
-  const verifyMutation = trpc.auth.verify.useMutation({
-    onSuccess: async (data) => {
-      setUser(data.user);
-      setLoading(false);
-      await setAuthSession(data);
-    },
-    onError: () => {
-      setUser(null);
-      setLoading(false);
-    },
-  });
+  const verifyMutation = trpc.auth.verify.useMutation();
 
   useEffect(() => {
     const loadAuth = async () => {
       const saved = await getAuthSession();
-      if (saved) {
+      if (!saved?.jwt) {
+        setAuthReady(true);
+        return;
+      }
+
+      try {
         setLoading(true);
-        verifyMutation.mutate({ jwt: saved.jwt });
+        const data = await verifyMutation.mutateAsync({ jwt: saved.jwt });
+        await applyAuthState(data);
+      } catch {
+        await refreshSession({ clearOnAnyFailure: true });
+      } finally {
+        setLoading(false);
+        setAuthReady(true);
       }
     };
-    loadAuth();
+
+    loadAuth().catch((err) => {
+      console.error("Failed to load auth session", err);
+      setLoading(false);
+      setAuthReady(true);
+    });
   }, []);
 
   useEffect(() => {
@@ -87,6 +140,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       cleanup?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!authReady || !user) return;
+
+    const interval = setInterval(() => {
+      refreshSession().catch((err) => {
+        console.error("Failed to refresh auth session", err);
+      });
+    }, 5 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [authReady, user?.id]);
 
   const login = () => {
     return utils.auth.generateAuthUrl

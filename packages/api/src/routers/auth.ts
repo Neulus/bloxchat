@@ -154,11 +154,12 @@ export const authRouter = t.router({
         });
 
       const tokenData = RobloxTokenSchema.parse(await res.json());
+      const userData = await fetchRobloxUser(tokenData.access_token);
 
       const newJwtPayload = {
-        robloxUserId: payload.robloxUserId,
-        name: payload.name,
-        picture: payload.picture,
+        robloxUserId: userData.sub,
+        name: userData.name,
+        picture: userData.picture,
         accessToken: tokenData.access_token,
         refreshToken: tokenData.refresh_token ?? payload.refreshToken,
       };
@@ -170,9 +171,9 @@ export const authRouter = t.router({
       return {
         jwt: newJwt,
         user: {
-          id: payload.robloxUserId,
-          name: payload.name,
-          picture: payload.picture,
+          id: userData.sub,
+          name: userData.name,
+          picture: userData.picture,
         },
       };
     }),
