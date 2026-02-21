@@ -2,7 +2,7 @@ use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rdev::{listen, Event, EventType};
 use regex::Regex;
 use reqwest::header::{CONTENT_TYPE, RANGE};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::cmp::Ordering;
 use std::ffi::OsString;
 use std::fs::File;
@@ -31,7 +31,6 @@ struct LogSettingsState {
 
 const GITHUB_REPO: &str = "logixism/bloxchat";
 const MSI_ASSET_NAME: &str = "BloxChat.msi";
-const UPDATE_STATE_FILE: &str = "updater-state.json";
 
 #[derive(Debug, Deserialize)]
 struct GithubRelease {
@@ -43,12 +42,6 @@ struct GithubRelease {
 struct GithubReleaseAsset {
     name: String,
     browser_download_url: String,
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UpdateState {
-    tracked_version: Option<String>,
 }
 
 fn default_roblox_logs_path() -> PathBuf {
@@ -91,26 +84,6 @@ fn compare_versions(left: &str, right: &str) -> Option<Ordering> {
 
 fn is_newer_version(candidate: &str, current: &str) -> bool {
     matches!(compare_versions(candidate, current), Some(Ordering::Greater))
-}
-
-fn updater_state_path(app: &AppHandle) -> Option<PathBuf> {
-    app.path().app_local_data_dir().ok().map(|dir| dir.join(UPDATE_STATE_FILE))
-}
-
-fn load_update_state(path: &Path) -> UpdateState {
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return UpdateState::default();
-    };
-    serde_json::from_str::<UpdateState>(&content).unwrap_or_default()
-}
-
-fn save_update_state(path: &Path, state: &UpdateState) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-
-    let serialized = serde_json::to_string_pretty(state).map_err(|e| e.to_string())?;
-    std::fs::write(path, serialized).map_err(|e| e.to_string())
 }
 
 async fn fetch_latest_release(client: &reqwest::Client) -> Result<GithubRelease, String> {
@@ -185,21 +158,7 @@ async fn check_for_startup_update(app: AppHandle) {
         return;
     }
 
-    let Some(state_path) = updater_state_path(&app) else {
-        eprintln!("updater disabled: unable to resolve app local data directory");
-        return;
-    };
-
     let current_version = app.package_info().version.to_string();
-    let mut state = load_update_state(&state_path);
-    if state.tracked_version.is_none() {
-        state.tracked_version = Some(current_version.clone());
-        let _ = save_update_state(&state_path, &state);
-    }
-    let tracked_version = state
-        .tracked_version
-        .clone()
-        .unwrap_or_else(|| current_version.clone());
 
     let client = match reqwest::Client::builder()
         .user_agent("BloxChat-Updater/1.0")
@@ -222,16 +181,9 @@ async fn check_for_startup_update(app: AppHandle) {
 
     let latest_version = normalize_version(&latest_release.tag_name);
     let current_normalized = normalize_version(&current_version);
-    let tracked_normalized = normalize_version(&tracked_version);
-
-    let should_update = is_newer_version(&latest_version, &current_normalized)
-        || is_newer_version(&latest_version, &tracked_normalized);
+    let should_update = is_newer_version(&latest_version, &current_normalized);
 
     if !should_update {
-        if tracked_normalized != current_normalized {
-            state.tracked_version = Some(current_normalized);
-            let _ = save_update_state(&state_path, &state);
-        }
         return;
     }
 
@@ -247,10 +199,7 @@ async fn check_for_startup_update(app: AppHandle) {
     }
 
     match run_installer_and_exit(&app, &installer_path) {
-        Ok(()) => {
-            state.tracked_version = Some(latest_version);
-            let _ = save_update_state(&state_path, &state);
-        }
+        Ok(()) => {}
         Err(err) => {
             eprintln!("updater failed to launch installer: {err}");
         }
