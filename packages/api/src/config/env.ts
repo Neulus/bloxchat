@@ -4,10 +4,6 @@ import { config } from "dotenv";
 config();
 
 const envSchema = z.object({
-  NODE_ENV: z
-    .enum(["development", "production", "test"])
-    .default("development"),
-
   ROBLOX_CLIENT_ID: z.string().nonempty(),
   ROBLOX_SECRET_KEY: z.string().nonempty(),
   JWT_SECRET: z.string().min(32).max(64),
