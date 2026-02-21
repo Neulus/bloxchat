@@ -535,8 +535,7 @@ fn start_log_watcher(
                 Config::default().with_poll_interval(std::time::Duration::from_secs(1)),
             ) {
                 Ok(w) => w,
-                Err(e) => {
-                    eprintln!("failed to create watcher: {:?}", e);
+                Err(_) => {
                     std::thread::sleep(std::time::Duration::from_secs(1));
                     continue;
                 }
@@ -546,7 +545,7 @@ fn start_log_watcher(
                 .watch(&log_dir, RecursiveMode::NonRecursive)
                 .is_err()
             {
-                std::thread::sleep(std::time::Duration::from_secs(1));
+                std::thread::sleep(std::time::Duration::from_secs(2));
                 if let Ok(next_path) = path_updates_rx.try_recv() {
                     log_dir = next_path;
                 }
@@ -555,33 +554,22 @@ fn start_log_watcher(
 
             let mut last_file: Option<PathBuf> = None;
             let mut last_pos: u64 = 0;
-            let mut last_job_id: Option<String> = None;
 
-            if let Ok(entries) = std::fs::read_dir(&log_dir) {
-                if let Some(latest_file) = entries
-                    .filter_map(|e| e.ok())
-                    .filter(|e| e.path().to_string_lossy().contains("_Player"))
-                    .max_by_key(|e| e.metadata().ok().and_then(|m| m.modified().ok()))
-                {
-                    last_file = Some(latest_file.path().clone());
-
-                    if let Ok(file) = File::open(latest_file.path()) {
-                        let mut reader = BufReader::new(file);
-                        for line_result in reader.by_ref().lines().flatten() {
-                            if let Some(caps) = re_join.captures(&line_result) {
-                                last_job_id = Some(caps[1].to_string());
-                            } else if re_leave.is_match(&line_result) {
-                                last_job_id = None;
-                            }
+            // Helper to process new lines in a file
+            let process_file = |path: &Path, pos: &mut u64| {
+                if let Ok(file) = File::open(path) {
+                    let mut reader = BufReader::new(file);
+                    let _ = reader.seek(SeekFrom::Start(*pos));
+                    for line in reader.by_ref().lines().flatten() {
+                        if let Some(caps) = re_join.captures(&line) {
+                            let _ = app.emit("new-job-id", &caps[1]);
+                        } else if re_leave.is_match(&line) {
+                            let _ = app.emit("new-job-id", "global");
                         }
-                        last_pos = reader.get_ref().metadata().map(|m| m.len()).unwrap_or(0);
                     }
+                    *pos = reader.get_ref().metadata().map(|m| m.len()).unwrap_or(*pos);
                 }
-            }
-
-            if let Some(job_id) = &last_job_id {
-                let _ = app.emit("new-job-id", job_id);
-            }
+            };
 
             let mut should_rebuild = false;
             while !should_rebuild {
@@ -593,50 +581,36 @@ fn start_log_watcher(
 
                 match rx.recv_timeout(std::time::Duration::from_millis(500)) {
                     Ok(Ok(event)) => {
-                        if let EventKind::Modify(_) = event.kind {
+                        // Check for Create OR Modify events
+                        if event.kind.is_modify() || event.kind.is_create() {
                             if let Some(path) = event.paths.get(0) {
                                 if !path.to_string_lossy().contains("_Player") {
                                     continue;
                                 }
 
+                                // If it's a new file, reset position
                                 if last_file.as_ref() != Some(path) {
                                     last_file = Some(path.clone());
                                     last_pos = 0;
                                 }
-
-                                if let Ok(file) = File::open(path) {
-                                    let mut reader = BufReader::new(file);
-                                    let _ = reader.seek(SeekFrom::Start(last_pos));
-
-                                    for line_result in reader.by_ref().lines().flatten() {
-                                        if let Some(caps) = re_join.captures(&line_result) {
-                                            let job_id = caps[1].to_string();
-                                            let _ = app.emit("new-job-id", &job_id);
-                                        } else if re_leave.is_match(&line_result) {
-                                            let _ = app.emit("new-job-id", &"global");
-                                        }
-                                    }
-
-                                    last_pos = reader
-                                        .get_ref()
-                                        .metadata()
-                                        .map(|m| m.len())
-                                        .unwrap_or(last_pos);
-                                }
+                                process_file(path, &mut last_pos);
                             }
                         }
                     }
-                    Ok(Err(e)) => {
-                        eprintln!("watch error: {:?}", e);
+                    Ok(Err(_)) => {}
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        // Polling fallback: In case Notify misses an event,
+                        // check the current file size anyway.
+                        if let Some(ref path) = last_file {
+                            process_file(path, &mut last_pos);
+                        }
                     }
-                    Err(mpsc::RecvTimeoutError::Timeout) => {}
                     Err(mpsc::RecvTimeoutError::Disconnected) => return,
                 }
             }
         }
     });
 }
-
 fn start_key_listener(app: AppHandle) {
     std::thread::spawn(move || {
         let callback = move |event: Event| {
