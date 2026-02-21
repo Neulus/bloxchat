@@ -10,6 +10,7 @@ import { trpc } from "../lib/trpc";
 import { listen } from "@tauri-apps/api/event";
 import type { ChatLimits, ChatMessage } from "@bloxchat/api";
 import { invoke } from "@tauri-apps/api/core";
+import { useAuth } from "./AuthContext";
 
 const FALLBACK_CHAT_LIMITS: ChatLimits = {
   maxMessageLength: 280,
@@ -32,7 +33,8 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const [currentJobId, setCurrentJobId] = useState("global");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sendError, setSendError] = useState<string | null>(null);
-  const sentTimestampsByChannelRef = useRef<Map<string, number[]>>(new Map());
+  const sentTimestampsByScopeRef = useRef<Map<string, number[]>>(new Map());
+  const { user } = useAuth();
 
   const publish = trpc.chat.publish.useMutation();
   const limitsQuery = trpc.chat.limits.useQuery({ channel: currentJobId });
@@ -78,8 +80,9 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
     const now = Date.now();
     const cutoff = now - chatLimits.rateLimitWindowMs;
+    const scopeKey = `${currentJobId}:${user?.id}`;
     const recentForChannel = (
-      sentTimestampsByChannelRef.current.get(currentJobId) ?? []
+      sentTimestampsByScopeRef.current.get(scopeKey) ?? []
     ).filter((timestamp) => timestamp > cutoff);
 
     if (recentForChannel.length >= chatLimits.rateLimitCount) {
@@ -96,12 +99,14 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       await publish.mutateAsync({ channel: currentJobId, content });
 
       recentForChannel.push(now);
-      sentTimestampsByChannelRef.current.set(currentJobId, recentForChannel);
+      sentTimestampsByScopeRef.current.set(scopeKey, recentForChannel);
       setSendError(null);
       return true;
     } catch (err) {
       console.error("Failed to send message:", err);
-      setSendError(err instanceof Error ? err.message : "Failed to send message.");
+      setSendError(
+        err instanceof Error ? err.message : "Failed to send message.",
+      );
       return false;
     }
   };
