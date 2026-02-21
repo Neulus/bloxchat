@@ -37,7 +37,7 @@ export const chatRouter = t.router({
 
       const now = Date.now();
       const cutoff = now - limits.rateLimitWindowMs;
-      const bucketKey = `${input.channel}:${ctx.user.robloxUserId}`;
+      const bucketKey = ctx.user.robloxUserId;
       const bucket = (messageBuckets.get(bucketKey) ?? []).filter(
         (timestamp) => timestamp > cutoff,
       );

@@ -80,13 +80,13 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
     const now = Date.now();
     const cutoff = now - chatLimits.rateLimitWindowMs;
-    const scopeKey = `${currentJobId}:${user?.id}`;
-    const recentForChannel = (
+    const scopeKey = `${user?.id}`; // technically user.id will never be undefined
+    const recentForUser = (
       sentTimestampsByScopeRef.current.get(scopeKey) ?? []
     ).filter((timestamp) => timestamp > cutoff);
 
-    if (recentForChannel.length >= chatLimits.rateLimitCount) {
-      const retryAt = recentForChannel[0] + chatLimits.rateLimitWindowMs;
+    if (recentForUser.length >= chatLimits.rateLimitCount) {
+      const retryAt = recentForUser[0] + chatLimits.rateLimitWindowMs;
       const retryAfterMs = Math.max(0, retryAt - now);
       setSendError(
         `Rate limit hit. Try again in ${Math.ceil(retryAfterMs / 1000)}s.`,
@@ -98,8 +98,8 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       await invoke("focus_roblox");
       await publish.mutateAsync({ channel: currentJobId, content });
 
-      recentForChannel.push(now);
-      sentTimestampsByScopeRef.current.set(scopeKey, recentForChannel);
+      recentForUser.push(now);
+      sentTimestampsByScopeRef.current.set(scopeKey, recentForUser);
       setSendError(null);
       return true;
     } catch (err) {
