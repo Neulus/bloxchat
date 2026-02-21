@@ -23,9 +23,7 @@ export async function createContext({
     try {
       const payload = jwt.verify(token, env.JWT_SECRET) as JwtUser;
       user = payload;
-    } catch {
-      throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid JWT" });
-    }
+    } catch {}
   }
 
   return { user };
