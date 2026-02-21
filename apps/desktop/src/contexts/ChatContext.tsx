@@ -7,7 +7,6 @@ import {
   useRef,
 } from "react";
 import { trpc } from "../lib/trpc";
-import { listen } from "@tauri-apps/api/event";
 import type { ChatLimits, ChatMessage } from "@bloxchat/api";
 import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "./AuthContext";
@@ -21,6 +20,7 @@ const FALLBACK_CHAT_LIMITS: ChatLimits = {
 type ChatContextType = {
   currentJobId: string;
   setCurrentJobId: (id: string) => void;
+  refreshCurrentJobId: () => Promise<string>;
   messages: ChatMessage[];
   chatLimits: ChatLimits;
   sendError: string | null;
@@ -57,13 +57,32 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     },
   );
 
+  const refreshCurrentJobId = async () => {
+    const nextJobId = await invoke<string>("get_job_id");
+    setCurrentJobId((prev) => (prev === nextJobId ? prev : nextJobId));
+    return nextJobId;
+  };
+
   useEffect(() => {
-    const unlistenPromise = listen<string>("new-job-id", (event) => {
-      setCurrentJobId(event.payload);
-    });
+    let cancelled = false;
+
+    const sync = async () => {
+      try {
+        const nextJobId = await invoke<string>("get_job_id");
+        if (!cancelled) {
+          setCurrentJobId((prev) => (prev === nextJobId ? prev : nextJobId));
+        }
+      } catch (err) {
+        console.error("Failed to sync job id:", err);
+      }
+    };
+
+    sync();
+    const interval = window.setInterval(sync, 1000);
 
     return () => {
-      unlistenPromise.then((unlisten) => unlisten());
+      cancelled = true;
+      window.clearInterval(interval);
     };
   }, []);
 
@@ -95,8 +114,9 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     }
 
     try {
+      const activeJobId = await refreshCurrentJobId();
       await invoke("focus_roblox");
-      await publish.mutateAsync({ channel: currentJobId, content });
+      await publish.mutateAsync({ channel: activeJobId, content });
 
       recentForUser.push(now);
       sentTimestampsByScopeRef.current.set(scopeKey, recentForUser);
@@ -116,6 +136,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       value={{
         currentJobId,
         setCurrentJobId,
+        refreshCurrentJobId,
         messages,
         chatLimits,
         sendError,

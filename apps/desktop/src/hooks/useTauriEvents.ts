@@ -8,8 +8,8 @@ const TRIGGER_KEY = "Slash";
 
 export function useTauriEvents(
   inputRef: React.RefObject<HTMLInputElement | null>,
-  setCurrentJobId: (id: string) => void,
-  setMessages: (msgs: ChatMessage[]) => void,
+  _setCurrentJobId: (id: string) => void,
+  _setMessages: (msgs: ChatMessage[]) => void,
 ) {
   const appWindowRef = useRef<Window | null>(null);
 
@@ -37,17 +37,11 @@ export function useTauriEvents(
       });
     });
 
-    const unlistenJob = listen<string>("new-job-id", (event) => {
-      setCurrentJobId(event.payload);
-      setMessages([]);
-    });
-
     return () => {
       unlistenFocus.then((f) => f());
       unlistenKeys.then((f) => f());
-      unlistenJob.then((f) => f());
     };
-  }, [inputRef, setCurrentJobId, setMessages]);
+  }, [inputRef]);
 
   return { appWindow: appWindowRef.current };
 }

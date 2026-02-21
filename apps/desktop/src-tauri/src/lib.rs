@@ -1,4 +1,4 @@
-use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use rdev::{listen, Event, EventType};
 use regex::Regex;
 use reqwest::header::{CONTENT_TYPE, RANGE};
@@ -254,6 +254,48 @@ fn set_roblox_logs_path(
     }
 
     Ok(next_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn get_job_id(state: tauri::State<LogSettingsState>) -> Result<String, String> {
+    let logs_path = {
+        let path = state.logs_path.lock().map_err(|e| e.to_string())?;
+        path.clone()
+    };
+
+    let re_join = Regex::new(r"Joining game '([a-f0-9\-]+)'").map_err(|e| e.to_string())?;
+    let re_leave = Regex::new(r"Disconnect from game|leaveGameInternal|leaveUGCGameInternal")
+        .map_err(|e| e.to_string())?;
+
+    let latest_log = std::fs::read_dir(logs_path)
+        .ok()
+        .and_then(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.path())
+                .filter(|path| path.to_string_lossy().contains("_Player"))
+                .max_by_key(|path| path.metadata().and_then(|m| m.modified()).ok())
+        });
+
+    let Some(latest_log) = latest_log else {
+        return Ok("global".to_string());
+    };
+
+    let file = match File::open(latest_log) {
+        Ok(file) => file,
+        Err(_) => return Ok("global".to_string()),
+    };
+
+    let mut current = "global".to_string();
+    for line in BufReader::new(file).lines().flatten() {
+        if let Some(caps) = re_join.captures(&line) {
+            current = caps[1].to_string();
+        } else if re_leave.is_match(&line) {
+            current = "global".to_string();
+        }
+    }
+
+    Ok(current)
 }
 
 #[tauri::command]
@@ -516,14 +558,10 @@ fn extract_media_url_from_meta_tags(html: &str, base_url: &reqwest::Url) -> Opti
 }
 
 fn start_log_watcher(
-    app: AppHandle,
     initial_path: PathBuf,
     path_updates_rx: mpsc::Receiver<PathBuf>,
 ) {
     std::thread::spawn(move || {
-        let re_join = Regex::new(r"Joining game '([a-f0-9\-]+)'").unwrap();
-        let re_leave =
-            Regex::new(r"Disconnect from game|leaveGameInternal|leaveUGCGameInternal").unwrap();
         let mut log_dir = initial_path;
 
         loop {
@@ -560,12 +598,7 @@ fn start_log_watcher(
                 if let Ok(file) = File::open(path) {
                     let mut reader = BufReader::new(file);
                     let _ = reader.seek(SeekFrom::Start(*pos));
-                    for line in reader.by_ref().lines().flatten() {
-                        if let Some(caps) = re_join.captures(&line) {
-                            let _ = app.emit("new-job-id", &caps[1]);
-                        } else if re_leave.is_match(&line) {
-                            let _ = app.emit("new-job-id", "global");
-                        }
+                    for _line in reader.by_ref().lines().flatten() {
                     }
                     *pos = reader.get_ref().metadata().map(|m| m.len()).unwrap_or(*pos);
                 }
@@ -651,7 +684,6 @@ pub fn run() {
         .setup(move |app| {
             tauri::async_runtime::spawn(check_for_startup_update(app.handle().clone()));
             start_log_watcher(
-                app.handle().clone(),
                 initial_logs_path.clone(),
                 watcher_control_rx,
             );
@@ -667,7 +699,8 @@ pub fn run() {
             is_image,
             get_default_roblox_logs_path,
             get_roblox_logs_path,
-            set_roblox_logs_path
+            set_roblox_logs_path,
+            get_job_id
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
