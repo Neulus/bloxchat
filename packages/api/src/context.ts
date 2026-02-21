@@ -7,7 +7,6 @@ import { JwtUser } from "./types";
 
 export async function createContext({
   req,
-  res,
 }: {
   req: IncomingMessage;
   res: ServerResponse;

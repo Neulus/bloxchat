@@ -1,17 +1,14 @@
 import { createTRPCReact } from "@trpc/react-query";
 import type { AppRouter } from "@bloxchat/api";
 import { createWSClient, httpBatchLink, wsLink, splitLink } from "@trpc/client";
-import { load } from "@tauri-apps/plugin-store";
+import { getApiUrl, getAuthSession, toWsUrl } from "./store";
 
 export const trpc = createTRPCReact<AppRouter>();
 
-const storePromise = load("store.json");
+const apiUrl = await getApiUrl();
 
 const wsClient = createWSClient({
-  url: import.meta.env.VITE_API_URL.replace("https", "wss").replace(
-    "http",
-    "ws",
-  ),
+  url: toWsUrl(apiUrl),
 });
 
 export const trpcClient = trpc.createClient({
@@ -22,10 +19,9 @@ export const trpcClient = trpc.createClient({
       },
       true: wsLink({ client: wsClient }),
       false: httpBatchLink({
-        url: import.meta.env.VITE_API_URL,
+        url: apiUrl,
         async headers() {
-          const store = await storePromise;
-          const saved = (await store.get("auth")) as { jwt: string } | null;
+          const saved = await getAuthSession();
           return saved ? { Authorization: `Bearer ${saved.jwt}` } : {};
         },
       }),

@@ -5,35 +5,29 @@ import {
   useState,
   ReactNode,
 } from "react";
-import { load } from "@tauri-apps/plugin-store";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { trpc } from "../lib/trpc";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { getAuthSession, setAuthSession } from "../lib/store";
 
 interface AuthContextValue {
-  user: any | null;
+  user: { id: string; name: string; picture: string } | null;
   loading: boolean;
-  login: () => void;
+  login: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-const storePromise = load("store.json", {
-  autoSave: true,
-  defaults: { auth: null },
-});
-
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<any | null>(null);
+  const [user, setUser] = useState<AuthContextValue["user"]>(null);
   const [loading, setLoading] = useState(false);
+  const utils = trpc.useUtils();
 
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async (data) => {
       setUser(data.user);
       setLoading(false);
-      const store = await storePromise;
-      await store.set("auth", data);
-      await store.save();
+      await setAuthSession(data);
     },
     onError: (err) => {
       console.error("Login failed", err);
@@ -45,9 +39,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     onSuccess: async (data) => {
       setUser(data.user);
       setLoading(false);
-      const store = await storePromise;
-      await store.set("auth", data);
-      await store.save();
+      await setAuthSession(data);
     },
     onError: () => {
       setUser(null);
@@ -57,8 +49,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const loadAuth = async () => {
-      const store = await storePromise;
-      const saved = (await store.get("auth")) as { jwt: string } | null;
+      const saved = await getAuthSession();
       if (saved) {
         setLoading(true);
         verifyMutation.mutate({ jwt: saved.jwt });
@@ -98,17 +89,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const login = () => {
-    const clientId = import.meta.env.VITE_ROBLOX_CLIENT_ID;
-    const redirectUri = "bloxchat://auth";
-
-    const oauthUrl =
-      `https://apis.roblox.com/oauth/v1/authorize` +
-      `?client_id=${clientId}` +
-      `&response_type=code` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&scope=openid profile`;
-
-    openUrl(oauthUrl);
+    return utils.auth.generateAuthUrl
+      .fetch()
+      .then(({ url }) => openUrl(url))
+      .catch((err) => {
+        console.error("Failed to generate auth URL", err);
+      });
   };
 
   return (

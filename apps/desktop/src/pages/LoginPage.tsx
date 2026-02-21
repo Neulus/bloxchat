@@ -10,9 +10,7 @@ export const LoginPage = () => {
   if (user) {
     return (
       <div className="flex flex-col items-center justify-center h-full space-y-6 p-8 text-center">
-        <h1 className="text-2xl font-bold">
-          Welcome back, {user.displayName || user.name}!
-        </h1>
+        <h1 className="text-2xl font-bold">Welcome back, {user.name}!</h1>
         <p className="text-muted-foreground text-sm">You are logged in.</p>
         <button
           onClick={() => nav("/")}

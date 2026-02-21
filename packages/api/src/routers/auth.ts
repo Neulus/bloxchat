@@ -54,6 +54,21 @@ async function fetchRobloxUser(accessToken: string) {
 }
 
 export const authRouter = t.router({
+  // why? because we want to give the server full control
+  generateAuthUrl: publicProcedure.query(() => {
+    const baseUrl = "https://apis.roblox.com/oauth/v1/authorize";
+    const params = new URLSearchParams({
+      client_id: env.ROBLOX_CLIENT_ID,
+      response_type: "code",
+      redirect_uri: "bloxchat://auth",
+      scope: "openid profile",
+    });
+
+    return {
+      url: `${baseUrl}?${params.toString()}`,
+    };
+  }),
+
   login: publicProcedure
     .input(z.object({ code: z.string() }))
     .mutation(async ({ input }) => {

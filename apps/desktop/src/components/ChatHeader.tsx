@@ -1,11 +1,8 @@
-import { useNavigate } from "react-router-dom";
-import { LuSettings, LuX } from "react-icons/lu";
+import { LuX } from "react-icons/lu";
 import { exitApp } from "tauri-plugin-app-exit-api";
 import { Button } from "./ui/button";
 
 export const ChatHeader = () => {
-  const navigate = useNavigate();
-
   return (
     <header
       data-tauri-drag-region
