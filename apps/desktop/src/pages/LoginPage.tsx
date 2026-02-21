@@ -3,10 +3,25 @@ import { LuMessageCircle } from "react-icons/lu";
 import { useAuth } from "../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
+import { useEffect, useState } from "react";
 
 export const LoginPage = () => {
   const { user, login, loading } = useAuth();
   const nav = useNavigate();
+
+  const [showLoading, setShowLoading] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowLoading(false), 1000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (loading || showLoading)
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+        <img src="/app-icon.png" className="w-32 h-32 mb-8 animate-bounce" />
+      </div>
+    );
 
   if (user) {
     return (
@@ -24,7 +39,7 @@ export const LoginPage = () => {
 
   return (
     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-      <img src="/app-icon.png" className="w-32 h-32 mb-8" />
+      <img src="/app-icon.png" className="w-32 h-32 mb-8 animate-pulse" />
 
       <h1 className="text-2xl mb-2 font-bold">Welcome to BloxChat</h1>
       <p className="text-muted-foreground text-sm mb-8">

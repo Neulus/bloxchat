@@ -1,6 +1,11 @@
-import { useState, useRef, useEffect, forwardRef } from "react";
+import { useState, useRef, useEffect, forwardRef, useMemo } from "react";
 import type { ChatMessage } from "@bloxchat/api";
 import { useChat } from "../contexts/ChatContext";
+import {
+  findEmojiSuggestions,
+  type EmojiSuggestion,
+  replaceEmojiShortcodes,
+} from "../lib/emoji";
 
 interface ChatInputProps {
   value: string;
@@ -9,46 +14,73 @@ interface ChatInputProps {
   maxLength: number;
 }
 
+type Suggestion =
+  | { type: "mention"; value: string }
+  | { type: "emoji"; value: EmojiSuggestion };
+
 export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
   ({ value, onChange, messages, maxLength }, ref) => {
-    const [suggestions, setSuggestions] = useState<string[]>([]);
+    const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [activeIndex, setActiveIndex] = useState(0);
+
     const internalRef = useRef<HTMLInputElement>(null);
     const { currentJobId } = useChat();
+
+    const usernames = useMemo(
+      () => Array.from(new Set(messages.map((m) => m.author.name))),
+      [messages],
+    );
 
     useEffect(() => {
       if (!ref) return;
       if (typeof ref === "function") {
         ref(internalRef.current);
       } else {
-        (ref as React.MutableRefObject<HTMLInputElement | null>).current =
-          internalRef.current;
+        ref.current = internalRef.current;
       }
     }, [ref]);
 
-    const usernames = Array.from(new Set(messages.map((m) => m.author.name)));
     const trimmedLength = value.trim().length;
     const remainingChars = maxLength - trimmedLength;
     const isOverLimit = remainingChars < 0;
 
+    // Suggestion logic
     useEffect(() => {
       const lastWord = value.split(/\s/).pop() || "";
+
+      let nextSuggestions: Suggestion[] = [];
+      let shouldShow = false;
+
       if (lastWord.startsWith("@")) {
         const query = lastWord.slice(1).toLowerCase();
         const matches = usernames.filter((u) =>
           u.toLowerCase().startsWith(query),
         );
-        setSuggestions(matches);
-        setShowSuggestions(matches.length > 0);
-        setActiveIndex(0);
-      } else {
-        setShowSuggestions(false);
+
+        nextSuggestions = matches.map((m) => ({
+          type: "mention",
+          value: m,
+        }));
+        shouldShow = matches.length > 0;
+      } else if (lastWord.startsWith(":")) {
+        const query = lastWord.slice(1).toLowerCase();
+        const matches = findEmojiSuggestions(query);
+
+        nextSuggestions = matches.map((m) => ({
+          type: "emoji",
+          value: m,
+        }));
+        shouldShow = matches.length > 0;
       }
+
+      setSuggestions(nextSuggestions);
+      setShowSuggestions(shouldShow);
+      setActiveIndex(0);
     }, [value, usernames]);
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (!showSuggestions) return;
+      if (!showSuggestions || suggestions.length === 0) return;
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -59,16 +91,20 @@ export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
           prev === 0 ? suggestions.length - 1 : prev - 1,
         );
       } else if (e.key === "Enter") {
-        if (showSuggestions) {
-          e.preventDefault();
-          insertSuggestion(suggestions[activeIndex]);
-        }
+        e.preventDefault();
+        insertSuggestion(suggestions[activeIndex]);
       }
     };
 
-    const insertSuggestion = (username: string) => {
+    const insertSuggestion = (suggestion: Suggestion) => {
       const words = value.split(/\s/);
-      words[words.length - 1] = `@${username}`;
+
+      if (suggestion.type === "mention") {
+        words[words.length - 1] = `@${suggestion.value}`;
+      } else {
+        words[words.length - 1] = suggestion.value.emoji;
+      }
+
       onChange(words.join(" ") + " ");
       setShowSuggestions(false);
       internalRef.current?.focus();
@@ -77,32 +113,55 @@ export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
     return (
       <div className="relative w-full">
         <input
-          ref={internalRef} // use internal ref
+          ref={internalRef}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={`Chatting ${currentJobId === "global" ? "globally. If you're in a server, try rejoining." : `job id ${currentJobId}`}`}
-          className="h-10 bg-background border-t border-muted w-full outline-none text-primary text-sm px-2 rounded-b-md"
+          placeholder={`Chatting ${
+            currentJobId === "global"
+              ? "globally. If you're in a server, try rejoining."
+              : `job id ${currentJobId}`
+          }`}
+          className="h-10 bg-background w-full outline-none text-primary text-sm px-2 rounded-b-md"
         />
+
         <div
-          className={`absolute right-2 -top-5 text-[10px] ${isOverLimit ? "text-red-400" : "text-muted-foreground"}`}
+          className={`absolute right-2 -top-5 text-[10px] ${
+            isOverLimit ? "text-red-400" : "text-muted-foreground"
+          }`}
         >
           {remainingChars} chars
         </div>
-        {showSuggestions && (
+
+        {showSuggestions && suggestions.length > 0 && (
           <ul className="absolute bottom-10 left-0 w-full bg-background max-h-40 overflow-y-auto z-10">
-            {suggestions.map((u, idx) => (
+            {suggestions.map((suggestion, idx) => (
               <li
-                key={u}
+                key={
+                  suggestion.type === "mention"
+                    ? `mention-${suggestion.value}`
+                    : `emoji-${suggestion.value.shortcode}`
+                }
                 className={`px-2 py-1 cursor-pointer ${
                   idx === activeIndex ? "bg-muted/50" : ""
                 }`}
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  insertSuggestion(u);
+                  insertSuggestion(suggestion);
                 }}
               >
-                {u}
+                {suggestion.type === "mention" ? (
+                  suggestion.value
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <span className="inline-block text-base leading-none">
+                      {replaceEmojiShortcodes(suggestion.value.emoji)}
+                    </span>
+                    <span className="text-muted-foreground">
+                      :{suggestion.value.shortcode}:
+                    </span>
+                  </span>
+                )}
               </li>
             ))}
           </ul>

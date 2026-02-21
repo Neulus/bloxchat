@@ -1,9 +1,10 @@
 import React from "react";
+import { replaceEmojiShortcodes } from "../lib/emoji";
 
 interface FormattedTextProps {
   content: string;
   username: string;
-  imageUrls: string[]; // pass in the URLs that are images
+  imageUrls: string[];
 }
 
 export const FormattedText = ({
@@ -11,20 +12,20 @@ export const FormattedText = ({
   username,
   imageUrls,
 }: FormattedTextProps) => {
+  const normalizedContent = replaceEmojiShortcodes(content);
   const regex = /(@\w+)|https?:\/\/[^\s]+/g;
-
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
 
   let match: RegExpExecArray | null;
-  while ((match = regex.exec(content)) !== null) {
+  while ((match = regex.exec(normalizedContent)) !== null) {
     const [matchedText] = match;
     const start = match.index;
 
     if (start > lastIndex) {
       parts.push(
         <span key={lastIndex} className="text-muted-foreground">
-          {content.slice(lastIndex, start)}
+          {normalizedContent.slice(lastIndex, start)}
         </span>,
       );
     }
@@ -51,9 +52,7 @@ export const FormattedText = ({
       parts.push(
         <span
           key={start}
-          className={`font-semibold ${
-            isSelf ? "text-amber-500" : "text-blue-300"
-          }`}
+          className={`font-semibold ${isSelf ? "text-amber-500" : "text-blue-300"}`}
         >
           {matchedText}
         </span>,
@@ -63,10 +62,10 @@ export const FormattedText = ({
     lastIndex = start + matchedText.length;
   }
 
-  if (lastIndex < content.length) {
+  if (lastIndex < normalizedContent.length) {
     parts.push(
       <span key={lastIndex} className="text-muted-foreground">
-        {content.slice(lastIndex)}
+        {normalizedContent.slice(lastIndex)}
       </span>,
     );
   }

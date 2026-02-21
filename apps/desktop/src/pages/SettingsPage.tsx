@@ -3,20 +3,26 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   DEFAULT_API_HOST,
   getApiUrl,
+  getImageLoadingEnabled,
   getLogsPath,
   setApiUrl,
+  setImageLoadingEnabled,
   setLogsPath,
 } from "../lib/store";
 import { Button } from "../components/ui/button";
+import { Checkbox } from "../components/ui/checkbox";
+import { useNavigate } from "react-router-dom";
 
 export const SettingsPage = () => {
   const [apiUrl, setApiUrlInput] = useState("");
   const [logsPath, setLogsPathInput] = useState("");
   const [activeLogsPath, setActiveLogsPath] = useState("");
   const [defaultLogsPath, setDefaultLogsPath] = useState("");
+  const [imageLoadingEnabled, setImageLoadingEnabledInput] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+  const navigate = useNavigate();
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -26,17 +32,20 @@ export const SettingsPage = () => {
           storedLogsPath,
           currentLogsPath,
           fallbackLogsPath,
+          currentImageLoadingEnabled,
         ] = await Promise.all([
           getApiUrl(),
           getLogsPath(),
           invoke<string>("get_roblox_logs_path"),
           invoke<string>("get_default_roblox_logs_path"),
+          getImageLoadingEnabled(),
         ]);
 
         setApiUrlInput(currentApiUrl);
         setActiveLogsPath(currentLogsPath);
         setDefaultLogsPath(fallbackLogsPath);
         setLogsPathInput((storedLogsPath || currentLogsPath).trim());
+        setImageLoadingEnabledInput(currentImageLoadingEnabled);
       } catch (loadError) {
         setError(String(loadError));
       } finally {
@@ -58,6 +67,7 @@ export const SettingsPage = () => {
 
       await invoke("set_roblox_logs_path", { path: nextLogsPath });
       await setLogsPath(nextLogsPath);
+      await setImageLoadingEnabled(imageLoadingEnabled);
 
       setApiUrlInput(normalizedApiUrl);
       setLogsPathInput(nextLogsPath);
@@ -118,12 +128,49 @@ export const SettingsPage = () => {
             </Button>
           </div>
 
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              External Image Loading
+            </label>
+            <div className="flex items-start gap-2">
+              <div className="flex flex-col items-start gap-1">
+                <label
+                  htmlFor="image-loading-enabled"
+                  className="flex items-center cursor-pointer text-sm"
+                >
+                  <Checkbox
+                    id="image-loading-enabled"
+                    checked={imageLoadingEnabled}
+                    onCheckedChange={(checked) =>
+                      setImageLoadingEnabledInput(checked === true)
+                    }
+                    disabled={isLoading || isSaving}
+                    className="mr-2"
+                  />
+                  Load external images inside chat
+                </label>
+                <p className="text-xs text-muted-foreground ml-6">
+                  This checks external URLs and can reveal your IP address to
+                  other users.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {error ? (
             <p className="text-xs text-red-500 break-all">{error}</p>
           ) : null}
 
           <Button onClick={save} disabled={isLoading || isSaving}>
             {isSaving ? "Saving..." : "Save Settings"}
+          </Button>
+          <Button
+            onClick={() => navigate("/")}
+            variant={"secondary"}
+            className="ml-2"
+            disabled={isLoading || isSaving}
+          >
+            Cancel
           </Button>
         </div>
       </div>

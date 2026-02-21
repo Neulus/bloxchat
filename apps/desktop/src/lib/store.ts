@@ -7,6 +7,8 @@ type StoreSchema = {
   auth: AuthSession | null;
   apiUrl: string;
   logsPath: string;
+  imageLoadingEnabled: boolean;
+  favoritedMedia: string[];
 };
 
 export const DEFAULT_API_HOST = "bloxchat.logix.lol";
@@ -16,6 +18,8 @@ const defaults: StoreSchema = {
   auth: null,
   apiUrl: DEFAULT_API_URL,
   logsPath: "",
+  imageLoadingEnabled: false,
+  favoritedMedia: [],
 };
 
 const storePromise = load("store.json", {
@@ -74,4 +78,36 @@ export const setLogsPath = async (value: string) => {
   const normalized = value.trim();
   await storeSet("logsPath", normalized);
   return normalized;
+};
+
+export const getImageLoadingEnabled = async () =>
+  storeGet("imageLoadingEnabled");
+
+export const setImageLoadingEnabled = async (value: boolean) => {
+  await storeSet("imageLoadingEnabled", value);
+  return value;
+};
+
+export const getFavoritedMedia = async () => storeGet("favoritedMedia");
+
+export const addFavoritedMedia = async (url: string) => {
+  const normalized = url.trim();
+  if (!normalized) return getFavoritedMedia();
+
+  const current = await getFavoritedMedia();
+  if (current.includes(normalized)) return current;
+
+  const next = [normalized, ...current];
+  await storeSet("favoritedMedia", next);
+  return next;
+};
+
+export const removeFavoritedMedia = async (url: string) => {
+  const normalized = url.trim();
+  if (!normalized) return getFavoritedMedia();
+
+  const current = await getFavoritedMedia();
+  const next = current.filter((item) => item !== normalized);
+  await storeSet("favoritedMedia", next);
+  return next;
 };

@@ -1,6 +1,7 @@
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rdev::{listen, Event, EventType};
 use regex::Regex;
+use reqwest::header::{CONTENT_TYPE, RANGE};
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
@@ -172,17 +173,170 @@ fn focus_roblox() -> bool {
 }
 
 #[tauri::command]
-async fn is_image(url: String) -> Result<bool, String> {
-    let resp = reqwest::Client::new()
-        .head(&url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if let Some(ct) = resp.headers().get("content-type") {
-        let ct_str = ct.to_str().map_err(|e| e.to_string())?;
-        return Ok(ct_str.starts_with("image/"));
+async fn is_image(url: String) -> Result<MediaProbe, String> {
+    let client = reqwest::Client::new();
+    let initial_probe = probe_media_url(&client, &url).await;
+    if initial_probe.displayable {
+        return Ok(initial_probe);
     }
-    Ok(false)
+
+    if let Some(resolved_media_url) =
+        resolve_media_url_from_html(&client, &initial_probe.final_url).await
+    {
+        let resolved_probe = probe_media_url(&client, &resolved_media_url).await;
+        if resolved_probe.displayable {
+            return Ok(resolved_probe);
+        }
+    }
+
+    Ok(initial_probe)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MediaProbe {
+    displayable: bool,
+    kind: String,
+    final_url: String,
+}
+
+fn classify_media_from_content_type(content_type: &str) -> Option<&'static str> {
+    let normalized = content_type.split(';').next().unwrap_or("").trim();
+    if normalized.starts_with("image/") {
+        return Some("image");
+    }
+
+    if normalized.starts_with("video/") {
+        return Some("video");
+    }
+
+    None
+}
+
+fn classify_media_from_url_path(url: &str) -> Option<&'static str> {
+    let path = reqwest::Url::parse(url).ok()?.path().to_string();
+    let file_name = path.rsplit('/').next().unwrap_or("").to_ascii_lowercase();
+    let ext = file_name.rsplit('.').next().unwrap_or("");
+    if ext == file_name {
+        return None;
+    }
+
+    match ext {
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "avif" | "apng" => Some("image"),
+        "mp4" | "webm" | "mov" | "gifv" => Some("video"),
+        _ => None,
+    }
+}
+
+async fn probe_media_url(client: &reqwest::Client, url: &str) -> MediaProbe {
+    let mut final_url = url.to_string();
+    let mut content_type: Option<String> = None;
+
+    if let Ok(head_resp) = client.head(url).send().await {
+        final_url = head_resp.url().to_string();
+        if let Some(value) = head_resp.headers().get(CONTENT_TYPE) {
+            if let Ok(value_str) = value.to_str() {
+                content_type = Some(value_str.to_ascii_lowercase());
+            }
+        }
+    }
+
+    if content_type.is_none() {
+        if let Ok(get_resp) = client.get(url).header(RANGE, "bytes=0-4096").send().await {
+            final_url = get_resp.url().to_string();
+            if let Some(value) = get_resp.headers().get(CONTENT_TYPE) {
+                if let Ok(value_str) = value.to_str() {
+                    content_type = Some(value_str.to_ascii_lowercase());
+                }
+            }
+        }
+    }
+
+    if let Some(kind) = content_type
+        .as_deref()
+        .and_then(classify_media_from_content_type)
+    {
+        return MediaProbe {
+            displayable: true,
+            kind: kind.to_string(),
+            final_url,
+        };
+    }
+
+    if let Some(kind) =
+        classify_media_from_url_path(&final_url).or_else(|| classify_media_from_url_path(url))
+    {
+        return MediaProbe {
+            displayable: true,
+            kind: kind.to_string(),
+            final_url,
+        };
+    }
+
+    MediaProbe {
+        displayable: false,
+        kind: "none".to_string(),
+        final_url,
+    }
+}
+
+async fn resolve_media_url_from_html(client: &reqwest::Client, url: &str) -> Option<String> {
+    let response = client.get(url).send().await.ok()?;
+    let response_url = response.url().clone();
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    if !content_type.contains("text/html") {
+        return None;
+    }
+
+    let body = response.text().await.ok()?;
+    extract_media_url_from_meta_tags(&body, &response_url)
+}
+
+fn extract_media_url_from_meta_tags(html: &str, base_url: &reqwest::Url) -> Option<String> {
+    let meta_tag_regex = Regex::new(r"(?is)<meta\s+[^>]*>").ok()?;
+    let content_regex = Regex::new(r#"(?i)\bcontent\s*=\s*["']([^"']+)["']"#).ok()?;
+    let media_keys = [
+        "og:video",
+        "og:video:url",
+        "og:image",
+        "og:image:url",
+        "twitter:image",
+        "twitter:image:src",
+        "twitter:player:stream",
+    ];
+
+    for meta_tag_match in meta_tag_regex.find_iter(html) {
+        let tag = meta_tag_match.as_str();
+        let lower_tag = tag.to_ascii_lowercase();
+        if !media_keys.iter().any(|key| lower_tag.contains(key)) {
+            continue;
+        }
+
+        let Some(content) = content_regex
+            .captures(tag)
+            .and_then(|caps| caps.get(1))
+            .map(|capture| capture.as_str().trim())
+            .filter(|value| !value.is_empty() && !value.starts_with("data:"))
+        else {
+            continue;
+        };
+
+        if let Ok(parsed) = reqwest::Url::parse(content) {
+            return Some(parsed.to_string());
+        }
+
+        if let Ok(joined) = base_url.join(content) {
+            return Some(joined.to_string());
+        }
+    }
+
+    None
 }
 
 fn start_log_watcher(
