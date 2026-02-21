@@ -44,7 +44,10 @@ export const chatRouter = t.router({
 
       if (bucket.length >= limits.rateLimitCount) {
         const oldest = bucket[0];
-        const retryAfterMs = Math.max(0, limits.rateLimitWindowMs - (now - oldest));
+        const retryAfterMs = Math.max(
+          0,
+          limits.rateLimitWindowMs - (now - oldest),
+        );
         throw new TRPCError({
           code: "TOO_MANY_REQUESTS",
           message: `Rate limit hit. Try again in ${Math.ceil(retryAfterMs / 1000)}s.`,

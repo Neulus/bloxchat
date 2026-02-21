@@ -6,6 +6,7 @@ import { getImageLoadingEnabled } from "../lib/store";
 import { Button } from "./ui/button";
 import { Star } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 type MediaProbeResult = {
   displayable: boolean;
@@ -25,6 +26,32 @@ interface MessageItemProps {
   onToggleFavoriteMedia?: (url: string) => void;
   isMediaFavorited?: (url: string) => boolean;
 }
+
+interface MessageAuthorProps {
+  displayName: string;
+  username: string;
+  isContinuation: boolean;
+}
+
+export const MessageAuthor = ({
+  displayName,
+  username,
+  isContinuation,
+}: MessageAuthorProps) => {
+  const [isHovered, setIsHovered] = useState(false);
+
+  if (isContinuation) return null;
+
+  return (
+    <span
+      className={`font-bold text-sm`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {isHovered ? username : displayName}
+    </span>
+  );
+};
 
 export const MessageItem = ({
   message,
@@ -93,7 +120,7 @@ export const MessageItem = ({
 
   const isMentioned =
     message.content.includes("@everyone") ||
-    message.content.includes(`@${user?.name}`);
+    message.content.includes(`@${user?.username}`);
 
   return (
     <div
@@ -109,17 +136,22 @@ export const MessageItem = ({
             src={message.author.picture}
             alt="avatar"
             className="w-10 h-10 rounded-full mt-1 shrink-0"
+            onClick={() =>
+              openUrl(
+                `https://roblox.com/users/${message.author.robloxUserId}/profile`,
+              )
+            }
           />
         ) : (
           <div className="w-10 shrink-0" />
         )}
 
         <div className="flex flex-col min-w-0">
-          {!isContinuation && (
-            <span className="font-bold text-sm text-foreground">
-              {message.author.name}
-            </span>
-          )}
+          <MessageAuthor
+            username={message.author.username}
+            displayName={message.author.displayName}
+            isContinuation={isContinuation}
+          />
 
           <div className="text-sm leading-relaxed">
             <FormattedText

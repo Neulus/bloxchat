@@ -28,7 +28,7 @@ export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
     const { currentJobId } = useChat();
 
     const usernames = useMemo(
-      () => Array.from(new Set(messages.map((m) => m.author.name))),
+      () => Array.from(new Set(messages.map((m) => m.author.username))),
       [messages],
     );
 

@@ -3,6 +3,12 @@ import { publicProcedure, t } from "../trpc";
 import { TRPCError } from "@trpc/server";
 import { env } from "../config/env";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
+import { ExtendedJwtUser, JwtUser } from "../types";
+import {
+  decryptSessionData,
+  encryptSessionData,
+} from "../services/sessionCrypto";
 
 const RobloxTokenSchema = z.object({
   access_token: z.string(),
@@ -13,28 +19,28 @@ const RobloxTokenSchema = z.object({
 
 const RobloxUserSchema = z.object({
   sub: z.string(),
-  name: z.string(),
+  preferred_username: z.string(),
+  nickname: z.string(),
   picture: z.string(),
 });
 
-async function exchangeCodeForToken(code: string) {
+async function exchangeRobloxToken(params: Record<string, string>) {
   const res = await fetch("https://apis.roblox.com/oauth/v1/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: env.ROBLOX_CLIENT_ID,
       client_secret: env.ROBLOX_SECRET_KEY,
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: "bloxchat://auth",
+      ...params,
     }),
   });
 
-  if (!res.ok)
+  if (!res.ok) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
-      message: "Failed to exchange code for token",
+      message: "Roblox token exchange failed",
     });
+  }
 
   return RobloxTokenSchema.parse(await res.json());
 }
@@ -44,78 +50,77 @@ async function fetchRobloxUser(accessToken: string) {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 
-  if (!res.ok)
+  if (!res.ok) {
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
-      message: "Failed to fetch user info",
+      message: "Failed to fetch Roblox user info",
     });
+  }
 
   return RobloxUserSchema.parse(await res.json());
 }
 
+async function createSession(
+  tokenParams: Record<string, string>,
+  existingRefreshToken?: string,
+) {
+  const tokenData = await exchangeRobloxToken(tokenParams);
+  const userData = await fetchRobloxUser(tokenData.access_token);
+
+  const sensitiveData = {
+    at: tokenData.access_token,
+    rt: tokenData.refresh_token ?? existingRefreshToken,
+  };
+
+  const jwtToken = jwt.sign(
+    {
+      robloxUserId: userData.sub,
+      username: userData.preferred_username,
+      displayName: userData.nickname,
+      picture: userData.picture,
+      data: encryptSessionData(sensitiveData),
+    } satisfies ExtendedJwtUser,
+    env.JWT_SECRET,
+    { expiresIn: "1h" },
+  );
+
+  return {
+    jwt: jwtToken,
+    user: {
+      robloxUserId: userData.sub,
+      username: userData.preferred_username,
+      displayName: userData.nickname,
+      picture: userData.picture,
+    } satisfies JwtUser,
+  };
+}
+
 export const authRouter = t.router({
-  // why? because we want to give the server full control
   generateAuthUrl: publicProcedure.query(() => {
     const baseUrl = "https://apis.roblox.com/oauth/v1/authorize";
+    const state = crypto.randomBytes(16).toString("hex");
     const params = new URLSearchParams({
       client_id: env.ROBLOX_CLIENT_ID,
       response_type: "code",
       redirect_uri: "bloxchat://auth",
       scope: "openid profile",
+      state,
     });
 
     return {
       url: `${baseUrl}?${params.toString()}`,
+      state,
     };
   }),
 
   login: publicProcedure
     .input(z.object({ code: z.string() }))
     .mutation(async ({ input }) => {
-      const tokenData = await exchangeCodeForToken(input.code);
-      const userData = await fetchRobloxUser(tokenData.access_token);
-
-      const jwtPayload = {
-        robloxUserId: userData.sub,
-        name: userData.name,
-        picture: userData.picture,
-        accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token,
-      };
-
-      const jwtToken = jwt.sign(jwtPayload, env.JWT_SECRET, {
-        expiresIn: "1h",
+      return createSession({
+        grant_type: "authorization_code",
+        code: input.code,
+        redirect_uri: "bloxchat://auth",
       });
-
-      return {
-        jwt: jwtToken,
-        user: {
-          id: userData.sub,
-          name: userData.name,
-          picture: userData.picture,
-        },
-      };
-    }),
-
-  verify: publicProcedure
-    .input(z.object({ jwt: z.string() }))
-    .mutation(async ({ input }) => {
-      try {
-        const payload = jwt.verify(input.jwt, env.JWT_SECRET) as any;
-        return {
-          jwt: input.jwt,
-          user: {
-            id: payload.robloxUserId,
-            name: payload.name,
-            picture: payload.picture,
-          },
-        };
-      } catch {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "Invalid or expired JWT",
-        });
-      }
     }),
 
   refresh: publicProcedure
@@ -127,54 +132,27 @@ export const authRouter = t.router({
           ignoreExpiration: true,
         });
       } catch {
-        throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid JWT" });
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Invalid session",
+        });
       }
 
-      if (!payload.refreshToken)
+      const decrypted = decryptSessionData(payload.data);
+
+      if (!decrypted.rt) {
         throw new TRPCError({
           code: "UNAUTHORIZED",
-          message: "No refresh token available",
+          message: "No refresh token",
         });
+      }
 
-      const res = await fetch("https://apis.roblox.com/oauth/v1/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: env.ROBLOX_CLIENT_ID,
-          client_secret: env.ROBLOX_SECRET_KEY,
+      return createSession(
+        {
           grant_type: "refresh_token",
-          refresh_token: payload.refreshToken,
-        }),
-      });
-
-      if (!res.ok)
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "Failed to refresh token",
-        });
-
-      const tokenData = RobloxTokenSchema.parse(await res.json());
-      const userData = await fetchRobloxUser(tokenData.access_token);
-
-      const newJwtPayload = {
-        robloxUserId: userData.sub,
-        name: userData.name,
-        picture: userData.picture,
-        accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token ?? payload.refreshToken,
-      };
-
-      const newJwt = jwt.sign(newJwtPayload, env.JWT_SECRET, {
-        expiresIn: "28d",
-      });
-
-      return {
-        jwt: newJwt,
-        user: {
-          id: userData.sub,
-          name: userData.name,
-          picture: userData.picture,
+          refresh_token: decrypted.rt,
         },
-      };
+        decrypted.rt,
+      );
     }),
 });

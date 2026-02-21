@@ -15,10 +15,13 @@ export type ChatLimits = {
 
 export interface JwtUser {
   robloxUserId: string;
-  name: string;
+  username: string;
+  displayName: string;
   picture: string;
-  accessToken: string;
-  refreshToken?: string;
+}
+
+export interface ExtendedJwtUser extends JwtUser {
+  data: string;
 }
 
 export type RouterOutputs = inferRouterOutputs<AppRouter>;

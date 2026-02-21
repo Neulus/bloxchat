@@ -46,7 +46,7 @@ export const FormattedText = ({ content, imageUrls }: FormattedTextProps) => {
         </a>,
       );
     } else if (matchedText.startsWith("@")) {
-      const isSelf = matchedText.slice(1) === user?.name;
+      const isSelf = matchedText.slice(1) === user?.username;
       parts.push(
         <span
           key={start}

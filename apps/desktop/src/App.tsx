@@ -32,9 +32,10 @@ export default function App() {
             <Route path="/" element={<MainLayout />}>
               <Route path="auth" element={<LoginPage />} />
 
+              <Route path="settings" element={<SettingsPage />} />
+
               <Route element={<RequireAuth />}>
                 <Route index element={<MainChat />} />
-                <Route path="settings" element={<SettingsPage />} />
               </Route>
             </Route>
           </Routes>

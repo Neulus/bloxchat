@@ -27,7 +27,9 @@ export const LoginPage = () => {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8 text-center">
         <img src="/app-icon.png" className="w-32 h-32 mb-8" />
-        <h1 className="text-2xl mb-2 font-bold">Welcome back, {user.name}!</h1>
+        <h1 className="text-2xl mb-2 font-bold">
+          Welcome back, {user.username}!
+        </h1>
         <p className="text-muted-foreground text-sm mb-8">You are logged in.</p>
         <Button onClick={() => nav("/")}>
           <LuMessageCircle size={16} />

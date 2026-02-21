@@ -99,7 +99,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
     const now = Date.now();
     const cutoff = now - chatLimits.rateLimitWindowMs;
-    const scopeKey = `${user?.id}`; // technically user.id will never be undefined
+    const scopeKey = `${user?.robloxUserId}`; // technically user.id will never be undefined because how will a user sendMessage while being unauthed
     const recentForUser = (
       sentTimestampsByScopeRef.current.get(scopeKey) ?? []
     ).filter((timestamp) => timestamp > cutoff);
