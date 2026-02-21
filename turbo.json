@@ -17,6 +17,7 @@
       "cache": false,
       "persistent": true
     },
+    "start": { "cache": false, "persistent": false },
     "tauri": {
       "cache": false,
       "persistent": true

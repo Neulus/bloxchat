@@ -18,7 +18,7 @@ export default function App() {
 
               <Route element={<RequireAuth />}>
                 <Route index element={<MainChat />} />
-                <Route path="settings" element={<SettingsPage />} />{" "}
+                <Route path="settings" element={<SettingsPage />} />
               </Route>
             </Route>
           </Routes>
