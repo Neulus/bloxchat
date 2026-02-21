@@ -1,16 +1,47 @@
 import { useEffect, useState } from "react";
-import { DEFAULT_API_HOST, getApiUrl, setApiUrl } from "../lib/store";
+import { invoke } from "@tauri-apps/api/core";
+import {
+  DEFAULT_API_HOST,
+  getApiUrl,
+  getLogsPath,
+  setApiUrl,
+  setLogsPath,
+} from "../lib/store";
+import { Button } from "../components/ui/button";
 
 export const SettingsPage = () => {
   const [apiUrl, setApiUrlInput] = useState("");
+  const [logsPath, setLogsPathInput] = useState("");
+  const [activeLogsPath, setActiveLogsPath] = useState("");
+  const [defaultLogsPath, setDefaultLogsPath] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const loadSettings = async () => {
-      const currentApiUrl = await getApiUrl();
-      setApiUrlInput(currentApiUrl);
-      setIsLoading(false);
+      try {
+        const [
+          currentApiUrl,
+          storedLogsPath,
+          currentLogsPath,
+          fallbackLogsPath,
+        ] = await Promise.all([
+          getApiUrl(),
+          getLogsPath(),
+          invoke<string>("get_roblox_logs_path"),
+          invoke<string>("get_default_roblox_logs_path"),
+        ]);
+
+        setApiUrlInput(currentApiUrl);
+        setActiveLogsPath(currentLogsPath);
+        setDefaultLogsPath(fallbackLogsPath);
+        setLogsPathInput((storedLogsPath || currentLogsPath).trim());
+      } catch (loadError) {
+        setError(String(loadError));
+      } finally {
+        setIsLoading(false);
+      }
     };
 
     loadSettings();
@@ -20,41 +51,81 @@ export const SettingsPage = () => {
     if (isSaving) return;
 
     setIsSaving(true);
+    setError("");
     try {
-      await setApiUrl(apiUrl);
+      const normalizedApiUrl = await setApiUrl(apiUrl);
+      const nextLogsPath = (logsPath.trim() || defaultLogsPath).trim();
+
+      await invoke("set_roblox_logs_path", { path: nextLogsPath });
+      await setLogsPath(nextLogsPath);
+
+      setApiUrlInput(normalizedApiUrl);
+      setLogsPathInput(nextLogsPath);
+      setActiveLogsPath(nextLogsPath);
       window.location.reload();
+    } catch (saveError) {
+      setError(String(saveError));
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-background text-primary p-6">
-      <h1 className="text-xl font-bold mb-4">Settings</h1>
+    <div className="flex h-screen w-screen bg-background text-primary p-6">
+      <div className="w-full max-w-2xl space-y-6">
+        <h1 className="text-xl font-bold">Settings</h1>
 
-      <div className="max-w-xl space-y-2">
-        <label htmlFor="api-url" className="text-sm font-medium">
-          API Server URL
-        </label>
-        <input
-          id="api-url"
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-          value={apiUrl}
-          onChange={(event) => setApiUrlInput(event.target.value)}
-          disabled={isLoading || isSaving}
-          placeholder={DEFAULT_API_HOST}
-        />
-        <p className="text-xs text-muted-foreground">
-          Default: {DEFAULT_API_HOST}. You can enter a full URL or just a host.
-          The app reloads after saving.
-        </p>
-        <button
-          className="rounded-md bg-brand px-4 py-2 text-white text-sm font-medium hover:bg-brand/80 disabled:opacity-60"
-          onClick={save}
-          disabled={isLoading || isSaving}
-        >
-          {isSaving ? "Saving..." : "Save"}
-        </button>
+        <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="api-url" className="text-sm font-medium">
+              API Server URL
+            </label>
+            <input
+              id="api-url"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              value={apiUrl}
+              onChange={(event) => setApiUrlInput(event.target.value)}
+              disabled={isLoading || isSaving}
+              placeholder={DEFAULT_API_HOST}
+            />
+            <p className="text-xs text-muted-foreground">
+              Default: {DEFAULT_API_HOST}. The app reloads after saving.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="logs-path" className="text-sm font-medium">
+              Roblox Logs Folder
+            </label>
+            <input
+              id="logs-path"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              value={logsPath}
+              onChange={(event) => setLogsPathInput(event.target.value)}
+              disabled={isLoading || isSaving}
+              placeholder={defaultLogsPath}
+            />
+            <p className="text-xs text-muted-foreground">
+              Current watcher path: {activeLogsPath || "Loading..."}
+            </p>
+            <Button
+              onClick={() => setLogsPathInput(defaultLogsPath)}
+              size={"sm"}
+              variant={"secondary"}
+              disabled={isLoading || isSaving || !defaultLogsPath}
+            >
+              Use default Path
+            </Button>
+          </div>
+
+          {error ? (
+            <p className="text-xs text-red-500 break-all">{error}</p>
+          ) : null}
+
+          <Button onClick={save} disabled={isLoading || isSaving}>
+            {isSaving ? "Saving..." : "Save Settings"}
+          </Button>
+        </div>
       </div>
     </div>
   );

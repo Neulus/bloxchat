@@ -6,6 +6,7 @@ export type AuthSession = RouterOutputs["auth"]["login"];
 type StoreSchema = {
   auth: AuthSession | null;
   apiUrl: string;
+  logsPath: string;
 };
 
 export const DEFAULT_API_HOST = "bloxchat.logix.lol";
@@ -14,6 +15,7 @@ export const DEFAULT_API_URL = `https://${DEFAULT_API_HOST}`;
 const defaults: StoreSchema = {
   auth: null,
   apiUrl: DEFAULT_API_URL,
+  logsPath: "",
 };
 
 const storePromise = load("store.json", {
@@ -64,4 +66,12 @@ export const getAuthSession = async () => storeGet("auth");
 
 export const setAuthSession = async (session: AuthSession | null) => {
   await storeSet("auth", session);
+};
+
+export const getLogsPath = async () => storeGet("logsPath");
+
+export const setLogsPath = async (value: string) => {
+  const normalized = value.trim();
+  await storeSet("logsPath", normalized);
+  return normalized;
 };

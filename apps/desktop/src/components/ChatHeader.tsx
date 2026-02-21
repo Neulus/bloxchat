@@ -1,8 +1,11 @@
-import { LuX } from "react-icons/lu";
+import { LuSettings, LuX } from "react-icons/lu";
 import { exitApp } from "tauri-plugin-app-exit-api";
 import { Button } from "./ui/button";
+import { useNavigate } from "react-router-dom";
 
 export const ChatHeader = () => {
+  const nav = useNavigate();
+
   return (
     <header
       data-tauri-drag-region
@@ -16,14 +19,14 @@ export const ChatHeader = () => {
       </div>
 
       <div className="flex gap-2">
-        {/* <Button
+        <Button
           size={"icon"}
           variant={"ghost"}
-          onClick={() => navigate("/settings")}
+          onClick={() => nav("/settings")}
           className="p-1 text-primary hover:text-primary/70 transition-colors cursor-pointer"
         >
           <LuSettings size={16} />
-        </Button> */}
+        </Button>
         <Button
           size={"icon"}
           variant={"ghost"}

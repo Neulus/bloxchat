@@ -1,11 +1,12 @@
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rdev::{listen, Event, EventType};
 use regex::Regex;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
-use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::os::windows::ffi::OsStringExt;
 use std::path::PathBuf;
+use std::sync::{mpsc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 #[cfg(desktop)]
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -17,11 +18,60 @@ use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, GetForegroundWindow, GetWindowThreadProcessId, IsIconic, SetForegroundWindow,
     ShowWindow, SW_RESTORE,
 };
-use windows_strings::{PCWSTR, PWSTR};
+use windows_strings::PCWSTR;
+
+struct LogSettingsState {
+    logs_path: Mutex<PathBuf>,
+    watcher_control: Mutex<Option<mpsc::Sender<PathBuf>>>,
+}
+
+fn default_roblox_logs_path() -> PathBuf {
+    let mut path = home::home_dir().expect("Could not find home dir");
+    path.push("AppData\\Local\\Roblox\\logs");
+    path
+}
 
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+#[tauri::command]
+fn get_default_roblox_logs_path() -> String {
+    default_roblox_logs_path().to_string_lossy().to_string()
+}
+
+#[tauri::command]
+fn get_roblox_logs_path(state: tauri::State<LogSettingsState>) -> Result<String, String> {
+    let path = state.logs_path.lock().map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn set_roblox_logs_path(
+    path: String,
+    state: tauri::State<LogSettingsState>,
+) -> Result<String, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Path cannot be empty".to_string());
+    }
+
+    let next_path = PathBuf::from(trimmed);
+    if !next_path.is_dir() {
+        return Err("Path must be an existing directory".to_string());
+    }
+
+    {
+        let mut current = state.logs_path.lock().map_err(|e| e.to_string())?;
+        *current = next_path.clone();
+    }
+
+    if let Some(tx) = state.watcher_control.lock().map_err(|e| e.to_string())?.as_ref() {
+        let _ = tx.send(next_path.clone());
+    }
+
+    Ok(next_path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -130,94 +180,115 @@ async fn is_image(url: String) -> Result<bool, String> {
     Ok(false)
 }
 
-fn start_log_watcher(app: AppHandle) {
+fn start_log_watcher(
+    app: AppHandle,
+    initial_path: PathBuf,
+    path_updates_rx: mpsc::Receiver<PathBuf>,
+) {
     std::thread::spawn(move || {
-        let mut log_dir = home::home_dir().expect("Could not find home dir");
-        log_dir.push("AppData/Local/Roblox/logs");
-
         let re_join = Regex::new(r"Joining game '([a-f0-9\-]+)'").unwrap();
         let re_leave =
             Regex::new(r"Disconnect from game|leaveGameInternal|leaveUGCGameInternal").unwrap();
+        let mut log_dir = initial_path;
 
-        let (tx, rx) = std::sync::mpsc::channel();
-
-        let mut watcher: RecommendedWatcher =
-            RecommendedWatcher::new(move |res| tx.send(res).unwrap(), Config::default()).unwrap();
-
-        watcher
-            .watch(&log_dir, RecursiveMode::NonRecursive)
+        loop {
+            let (tx, rx) = mpsc::channel();
+            let mut watcher: RecommendedWatcher = RecommendedWatcher::new(
+                move |res| {
+                    let _ = tx.send(res);
+                },
+                Config::default(),
+            )
             .unwrap();
 
-        let mut last_file: Option<PathBuf> = None;
-        let mut last_pos: u64 = 0;
-        let mut last_job_id: Option<String> = None;
-
-        // --- SCAN LOGS ON START ---
-        if let Ok(entries) = std::fs::read_dir(&log_dir) {
-            if let Some(latest_file) = entries
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().to_string_lossy().contains("_Player"))
-                .max_by_key(|e| e.metadata().ok().and_then(|m| m.modified().ok()))
+            if watcher
+                .watch(&log_dir, RecursiveMode::NonRecursive)
+                .is_err()
             {
-                if let Ok(file) = File::open(latest_file.path()) {
-                    let mut reader = BufReader::new(file);
-                    for line_result in reader.by_ref().lines().flatten() {
-                        if let Some(caps) = re_join.captures(&line_result) {
-                            last_job_id = Some(caps[1].to_string());
-                        } else if re_leave.is_match(&line_result) {
-                            last_job_id = None; // Last log was a disconnect
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                if let Ok(next_path) = path_updates_rx.try_recv() {
+                    log_dir = next_path;
+                }
+                continue;
+            }
+
+            let mut last_file: Option<PathBuf> = None;
+            let mut last_pos: u64 = 0;
+            let mut last_job_id: Option<String> = None;
+
+            if let Ok(entries) = std::fs::read_dir(&log_dir) {
+                if let Some(latest_file) = entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.path().to_string_lossy().contains("_Player"))
+                    .max_by_key(|e| e.metadata().ok().and_then(|m| m.modified().ok()))
+                {
+                    if let Ok(file) = File::open(latest_file.path()) {
+                        let mut reader = BufReader::new(file);
+                        for line_result in reader.by_ref().lines().flatten() {
+                            if let Some(caps) = re_join.captures(&line_result) {
+                                last_job_id = Some(caps[1].to_string());
+                            } else if re_leave.is_match(&line_result) {
+                                last_job_id = None;
+                            }
                         }
+                        last_pos = reader.get_ref().metadata().map(|m| m.len()).unwrap_or(0);
                     }
-                    // Use reader.get_ref() to access the original file for metadata
-                    last_pos = reader.get_ref().metadata().map(|m| m.len()).unwrap_or(0);
                 }
             }
-        }
 
-        // Emit last job ID on startup if present
-        if let Some(job_id) = &last_job_id {
-            let _ = app.emit("new-job-id", job_id);
-        }
+            if let Some(job_id) = &last_job_id {
+                let _ = app.emit("new-job-id", job_id);
+            }
 
-        // --- WATCHER LOOP ---
-        for res in rx {
-            if let Ok(event) = res {
-                if let EventKind::Modify(_) = event.kind {
-                    if let Some(path) = event.paths.get(0) {
-                        if !path.to_string_lossy().contains("_Player") {
-                            continue;
-                        }
+            let mut should_rebuild = false;
+            while !should_rebuild {
+                if let Ok(next_path) = path_updates_rx.try_recv() {
+                    log_dir = next_path;
+                    should_rebuild = true;
+                    continue;
+                }
 
-                        if last_file.as_ref() != Some(path) {
-                            last_file = Some(path.clone());
-                            last_pos = 0;
-                        }
+                match rx.recv_timeout(std::time::Duration::from_millis(500)) {
+                    Ok(Ok(event)) => {
+                        if let EventKind::Modify(_) = event.kind {
+                            if let Some(path) = event.paths.get(0) {
+                                if !path.to_string_lossy().contains("_Player") {
+                                    continue;
+                                }
 
-                        if let Ok(file) = File::open(path) {
-                            let mut reader = BufReader::new(file);
-                            let _ = reader.seek(SeekFrom::Start(last_pos));
+                                if last_file.as_ref() != Some(path) {
+                                    last_file = Some(path.clone());
+                                    last_pos = 0;
+                                }
 
-                            for line_result in reader.by_ref().lines().flatten() {
-                                if let Some(caps) = re_join.captures(&line_result) {
-                                    let job_id = caps[1].to_string();
-                                    last_job_id = Some(job_id.clone());
-                                    let _ = app.emit("new-job-id", &job_id);
-                                } else if re_leave.is_match(&line_result) {
-                                    last_job_id = None;
-                                    let _ = app.emit("new-job-id", &"global");
+                                if let Ok(file) = File::open(path) {
+                                    let mut reader = BufReader::new(file);
+                                    let _ = reader.seek(SeekFrom::Start(last_pos));
+
+                                    for line_result in reader.by_ref().lines().flatten() {
+                                        if let Some(caps) = re_join.captures(&line_result) {
+                                            let job_id = caps[1].to_string();
+                                            let _ = app.emit("new-job-id", &job_id);
+                                        } else if re_leave.is_match(&line_result) {
+                                            let _ = app.emit("new-job-id", &"global");
+                                        }
+                                    }
+
+                                    last_pos = reader
+                                        .get_ref()
+                                        .metadata()
+                                        .map(|m| m.len())
+                                        .unwrap_or(last_pos);
                                 }
                             }
-
-                            last_pos = reader
-                                .get_ref()
-                                .metadata()
-                                .map(|m| m.len())
-                                .unwrap_or(last_pos);
                         }
                     }
+                    Ok(Err(e)) => {
+                        eprintln!("watch error: {:?}", e);
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(mpsc::RecvTimeoutError::Disconnected) => return,
                 }
-            } else if let Err(e) = res {
-                eprintln!("watch error: {:?}", e);
             }
         }
     });
@@ -241,6 +312,8 @@ fn start_key_listener(app: AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
+    let initial_logs_path = default_roblox_logs_path();
+    let (watcher_control_tx, watcher_control_rx) = mpsc::channel::<PathBuf>();
 
     #[cfg(desktop)]
     {
@@ -250,12 +323,20 @@ pub fn run() {
     }
 
     builder
+        .manage(LogSettingsState {
+            logs_path: Mutex::new(initial_logs_path.clone()),
+            watcher_control: Mutex::new(Some(watcher_control_tx)),
+        })
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_app_exit::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
-            start_log_watcher(app.handle().clone());
+        .setup(move |app| {
+            start_log_watcher(
+                app.handle().clone(),
+                initial_logs_path.clone(),
+                watcher_control_rx,
+            );
             start_key_listener(app.handle().clone());
             #[cfg(desktop)]
             app.deep_link().register("bloxchat")?;
@@ -265,7 +346,10 @@ pub fn run() {
             greet,
             should_steal_focus,
             focus_roblox,
-            is_image
+            is_image,
+            get_default_roblox_logs_path,
+            get_roblox_logs_path,
+            set_roblox_logs_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
