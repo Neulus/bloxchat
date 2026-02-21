@@ -2,11 +2,14 @@ use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rdev::{listen, Event, EventType};
 use regex::Regex;
 use reqwest::header::{CONTENT_TYPE, RANGE};
+use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::os::windows::ffi::OsStringExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{mpsc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 #[cfg(desktop)]
@@ -26,10 +29,232 @@ struct LogSettingsState {
     watcher_control: Mutex<Option<mpsc::Sender<PathBuf>>>,
 }
 
+const GITHUB_REPO: &str = "logixism/bloxchat";
+const MSI_ASSET_NAME: &str = "BloxChat.msi";
+const UPDATE_STATE_FILE: &str = "updater-state.json";
+
+#[derive(Debug, Deserialize)]
+struct GithubRelease {
+    tag_name: String,
+    assets: Vec<GithubReleaseAsset>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubReleaseAsset {
+    name: String,
+    browser_download_url: String,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateState {
+    tracked_version: Option<String>,
+}
+
 fn default_roblox_logs_path() -> PathBuf {
     let mut path = home::home_dir().expect("Could not find home dir");
     path.push("AppData\\Local\\Roblox\\logs");
     path
+}
+
+fn normalize_version(version: &str) -> String {
+    version.trim().trim_start_matches('v').to_string()
+}
+
+fn parse_semver_parts(version: &str) -> Option<Vec<u64>> {
+    let normalized = normalize_version(version);
+    let core = normalized
+        .split(['-', '+'])
+        .next()
+        .unwrap_or("")
+        .trim();
+    if core.is_empty() {
+        return None;
+    }
+
+    let mut parts = Vec::new();
+    for segment in core.split('.') {
+        parts.push(segment.parse::<u64>().ok()?);
+    }
+
+    Some(parts)
+}
+
+fn compare_versions(left: &str, right: &str) -> Option<Ordering> {
+    let mut left_parts = parse_semver_parts(left)?;
+    let mut right_parts = parse_semver_parts(right)?;
+    let max = left_parts.len().max(right_parts.len());
+    left_parts.resize(max, 0);
+    right_parts.resize(max, 0);
+    Some(left_parts.cmp(&right_parts))
+}
+
+fn is_newer_version(candidate: &str, current: &str) -> bool {
+    matches!(compare_versions(candidate, current), Some(Ordering::Greater))
+}
+
+fn updater_state_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_local_data_dir().ok().map(|dir| dir.join(UPDATE_STATE_FILE))
+}
+
+fn load_update_state(path: &Path) -> UpdateState {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return UpdateState::default();
+    };
+    serde_json::from_str::<UpdateState>(&content).unwrap_or_default()
+}
+
+fn save_update_state(path: &Path, state: &UpdateState) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let serialized = serde_json::to_string_pretty(state).map_err(|e| e.to_string())?;
+    std::fs::write(path, serialized).map_err(|e| e.to_string())
+}
+
+async fn fetch_latest_release(client: &reqwest::Client) -> Result<GithubRelease, String> {
+    let endpoint = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
+    let response = client
+        .get(endpoint)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        return Err(format!("GitHub latest release request failed: {}", response.status()));
+    }
+
+    let payload = response.text().await.map_err(|e| e.to_string())?;
+    serde_json::from_str::<GithubRelease>(&payload).map_err(|e| e.to_string())
+}
+
+fn release_msi_url(release: &GithubRelease) -> Option<String> {
+    release
+        .assets
+        .iter()
+        .find(|asset| asset.name.eq_ignore_ascii_case(MSI_ASSET_NAME))
+        .map(|asset| asset.browser_download_url.clone())
+}
+
+async fn download_installer(
+    client: &reqwest::Client,
+    download_url: &str,
+    target_path: &Path,
+) -> Result<(), String> {
+    let response = client
+        .get(download_url)
+        .header("Accept", "application/octet-stream")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Installer download failed with status {}",
+            response.status()
+        ));
+    }
+
+    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+    std::fs::write(target_path, &bytes).map_err(|e| e.to_string())
+}
+
+fn run_installer_and_exit(app: &AppHandle, installer_path: &Path) -> Result<(), String> {
+    let installer = installer_path
+        .to_str()
+        .ok_or_else(|| "Installer path is not valid UTF-8".to_string())?;
+
+    Command::new("msiexec")
+        .args(["/i", installer, "/passive", "/norestart"])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    app.exit(0);
+    Ok(())
+}
+
+async fn check_for_startup_update(app: AppHandle) {
+    // Never auto-update in development/debug runs (e.g. `cargo tauri dev`).
+    if cfg!(debug_assertions) {
+        return;
+    }
+
+    if !cfg!(target_os = "windows") {
+        return;
+    }
+
+    let Some(state_path) = updater_state_path(&app) else {
+        eprintln!("updater disabled: unable to resolve app local data directory");
+        return;
+    };
+
+    let current_version = app.package_info().version.to_string();
+    let mut state = load_update_state(&state_path);
+    if state.tracked_version.is_none() {
+        state.tracked_version = Some(current_version.clone());
+        let _ = save_update_state(&state_path, &state);
+    }
+    let tracked_version = state
+        .tracked_version
+        .clone()
+        .unwrap_or_else(|| current_version.clone());
+
+    let client = match reqwest::Client::builder()
+        .user_agent("BloxChat-Updater/1.0")
+        .build()
+    {
+        Ok(client) => client,
+        Err(err) => {
+            eprintln!("updater disabled: failed to build HTTP client: {err}");
+            return;
+        }
+    };
+
+    let latest_release = match fetch_latest_release(&client).await {
+        Ok(release) => release,
+        Err(err) => {
+            eprintln!("updater failed: {err}");
+            return;
+        }
+    };
+
+    let latest_version = normalize_version(&latest_release.tag_name);
+    let current_normalized = normalize_version(&current_version);
+    let tracked_normalized = normalize_version(&tracked_version);
+
+    let should_update = is_newer_version(&latest_version, &current_normalized)
+        || is_newer_version(&latest_version, &tracked_normalized);
+
+    if !should_update {
+        if tracked_normalized != current_normalized {
+            state.tracked_version = Some(current_normalized);
+            let _ = save_update_state(&state_path, &state);
+        }
+        return;
+    }
+
+    let Some(msi_url) = release_msi_url(&latest_release) else {
+        eprintln!("updater skipped: release missing {MSI_ASSET_NAME}");
+        return;
+    };
+
+    let installer_path = std::env::temp_dir().join(format!("BloxChat-{latest_version}.msi"));
+    if let Err(err) = download_installer(&client, &msi_url, &installer_path).await {
+        eprintln!("updater failed to download installer: {err}");
+        return;
+    }
+
+    match run_installer_and_exit(&app, &installer_path) {
+        Ok(()) => {
+            state.tracked_version = Some(latest_version);
+            let _ = save_update_state(&state_path, &state);
+        }
+        Err(err) => {
+            eprintln!("updater failed to launch installer: {err}");
+        }
+    }
 }
 
 #[tauri::command]
@@ -497,6 +722,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
+            tauri::async_runtime::spawn(check_for_startup_update(app.handle().clone()));
             start_log_watcher(
                 app.handle().clone(),
                 initial_logs_path.clone(),
