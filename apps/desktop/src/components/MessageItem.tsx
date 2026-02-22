@@ -8,6 +8,13 @@ import { Star } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
+const timeFormatter = new Intl.DateTimeFormat(undefined, {
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+const formatTimestamp = (timestamp: number) => timeFormatter.format(timestamp);
+
 type MediaProbeResult = {
   displayable: boolean;
   kind: "image" | "video" | "none";
@@ -41,11 +48,11 @@ export const MessageAuthor = ({
   if (isContinuation) return null;
 
   return (
-    <span className="relative inline-grid mb-1 text-sm font-bold leading-none text-foreground chat-readable-text">
-      <span className="transition-opacity duration-150 ease-out group-hover/message-head:opacity-0">
+    <span className="inline-flex text-sm font-bold leading-none text-foreground chat-readable-text">
+      <span className="block group-hover/message-head:hidden">
         {displayName}
       </span>
-      <span className="absolute inset-0 opacity-0 transition-opacity duration-150 ease-out group-hover/message-head:opacity-100">
+      <span className="hidden group-hover/message-head:block">
         {username}
       </span>
     </span>
@@ -62,6 +69,9 @@ export const MessageItem = ({
   const { user } = useAuth();
   const isSending = message.localStatus === "sending";
   const isFailed = message.localStatus === "failed";
+  const timestamp = message.clientTimestamp ?? Date.now();
+  const timeLabel = formatTimestamp(timestamp);
+  const timeTitle = new Date(timestamp).toLocaleString();
 
   useEffect(() => {
     let cancelled = false;
@@ -157,15 +167,32 @@ export const MessageItem = ({
             </span>
           </button>
         ) : (
-          <div className="w-10 shrink-0" />
+          <div className="w-10 shrink-0 flex items-start justify-center">
+            <span
+              className="block mt-1.5 text-[10px] leading-none text-muted-foreground text-center opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100"
+              title={timeTitle}
+            >
+              {timeLabel}
+            </span>
+          </div>
         )}
 
         <div className="flex flex-col min-w-0">
-          <MessageAuthor
-            username={message.author.username}
-            displayName={message.author.displayName}
-            isContinuation={isContinuation}
-          />
+          {!isContinuation && (
+            <div className="flex items-baseline gap-2 mb-1">
+              <MessageAuthor
+                username={message.author.username}
+                displayName={message.author.displayName}
+                isContinuation={isContinuation}
+              />
+              <span
+                className="text-[10px] text-muted-foreground"
+                title={timeTitle}
+              >
+                {timeLabel}
+              </span>
+            </div>
+          )}
 
           <div className="wrap-break-word text-sm leading-relaxed text-foreground/95 chat-readable-text">
             <FormattedText
