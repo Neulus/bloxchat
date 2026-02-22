@@ -10,6 +10,7 @@ import { trpc } from "../lib/trpc";
 import type { ChatLimits, ChatMessage } from "@bloxchat/api";
 import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "./AuthContext";
+import { getJoinMessage } from "../lib/store";
 
 export type UiChatMessage = ChatMessage & {
   clientId: string;
@@ -20,6 +21,17 @@ const FALLBACK_CHAT_LIMITS: ChatLimits = {
   maxMessageLength: 280,
   rateLimitCount: 4,
   rateLimitWindowMs: 5000,
+};
+
+const DEFAULT_JOIN_MESSAGE = "joined the channel";
+
+const parseRetryAfterMs = (message: string) => {
+  const matchedSeconds = message.match(/try again in\s+(\d+)s/i);
+  if (!matchedSeconds) return 1000;
+
+  const seconds = Number.parseInt(matchedSeconds[1], 10);
+  if (!Number.isFinite(seconds) || seconds <= 0) return 1000;
+  return seconds * 1000;
 };
 
 type ChatContextType = {
@@ -41,11 +53,71 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const sentTimestampsByScopeRef = useRef<Map<string, number[]>>(new Map());
   const { user } = useAuth();
   const currentUserIdRef = useRef<string | null>(null);
+  const latestJobIdRef = useRef<string | null>(null);
+  const autoJoinRetryTimeoutsRef = useRef<Map<string, number>>(new Map());
   currentUserIdRef.current = user?.robloxUserId ?? null;
 
   const publish = trpc.chat.publish.useMutation();
   const limitsQuery = trpc.chat.limits.useQuery({ channel: currentJobId });
   const chatLimits = limitsQuery.data ?? FALLBACK_CHAT_LIMITS;
+
+  const clearAutoJoinRetry = (channel: string) => {
+    const timeout = autoJoinRetryTimeoutsRef.current.get(channel);
+    if (timeout === undefined) return;
+    window.clearTimeout(timeout);
+    autoJoinRetryTimeoutsRef.current.delete(channel);
+  };
+
+  const queueAutoJoinSend = (channel: string, content: string, delayMs = 0) => {
+    clearAutoJoinRetry(channel);
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        await publish.mutateAsync({ channel, content });
+        autoJoinRetryTimeoutsRef.current.delete(channel);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to send join message.";
+
+        if (/rate.?limit/i.test(message)) {
+          queueAutoJoinSend(channel, content, parseRetryAfterMs(message));
+          return;
+        }
+
+        autoJoinRetryTimeoutsRef.current.delete(channel);
+        console.error("Failed to send auto join message:", err);
+      }
+    }, delayMs);
+
+    autoJoinRetryTimeoutsRef.current.set(channel, timeout);
+  };
+
+  const triggerAutoJoinMessage = async (channel: string) => {
+    if (!currentUserIdRef.current) return;
+
+    const configured = (await getJoinMessage()).trim();
+    const content = configured || DEFAULT_JOIN_MESSAGE;
+    queueAutoJoinSend(channel, content);
+  };
+
+  const applyObservedJobId = (nextJobId: string) => {
+    const previousJobId = latestJobIdRef.current;
+    latestJobIdRef.current = nextJobId;
+
+    setCurrentJobId((prev) => (prev === nextJobId ? prev : nextJobId));
+
+    if (previousJobId === null || previousJobId === nextJobId) {
+      return nextJobId;
+    }
+
+    void triggerAutoJoinMessage(nextJobId);
+  };
+
+  const syncJobId = async () => {
+    const nextJobId = await invoke<string>("get_job_id");
+    applyObservedJobId(nextJobId);
+    return nextJobId;
+  };
 
   useEffect(() => {
     setMessages([]);
@@ -93,9 +165,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const refreshCurrentJobId = async () => {
-    const nextJobId = await invoke<string>("get_job_id");
-    setCurrentJobId((prev) => (prev === nextJobId ? prev : nextJobId));
-    return nextJobId;
+    return syncJobId();
   };
 
   useEffect(() => {
@@ -104,9 +174,8 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     const sync = async () => {
       try {
         const nextJobId = await invoke<string>("get_job_id");
-        if (!cancelled) {
-          setCurrentJobId((prev) => (prev === nextJobId ? prev : nextJobId));
-        }
+        if (cancelled) return;
+        applyObservedJobId(nextJobId);
       } catch (err) {
         console.error("Failed to sync job id:", err);
       }
@@ -118,6 +187,10 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     return () => {
       cancelled = true;
       window.clearInterval(interval);
+      for (const timeout of autoJoinRetryTimeoutsRef.current.values()) {
+        window.clearTimeout(timeout);
+      }
+      autoJoinRetryTimeoutsRef.current.clear();
     };
   }, []);
 

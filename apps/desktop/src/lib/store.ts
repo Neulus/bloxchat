@@ -9,6 +9,7 @@ type StoreSchema = {
   logsPath: string;
   imageLoadingEnabled: boolean;
   guiOpacity: number;
+  joinMessage: string;
   favoritedMedia: string[];
 };
 
@@ -21,6 +22,7 @@ const defaults: StoreSchema = {
   logsPath: "",
   imageLoadingEnabled: false,
   guiOpacity: 1,
+  joinMessage: "joined the channel",
   favoritedMedia: [],
 };
 
@@ -113,6 +115,14 @@ export const setGuiOpacity = async (value: number) => {
 };
 
 export const getFavoritedMedia = async () => storeGet("favoritedMedia");
+
+export const getJoinMessage = async () => storeGet("joinMessage");
+
+export const setJoinMessage = async (value: string) => {
+  const normalized = value.trim();
+  await storeSet("joinMessage", normalized || defaults.joinMessage);
+  return normalized || defaults.joinMessage;
+};
 
 export const addFavoritedMedia = async (url: string) => {
   const normalized = url.trim();

@@ -6,10 +6,12 @@ import {
   getApiUrl,
   getGuiOpacity,
   getImageLoadingEnabled,
+  getJoinMessage,
   getLogsPath,
   setApiUrl,
   setGuiOpacity,
   setImageLoadingEnabled,
+  setJoinMessage,
   setLogsPath,
 } from "../lib/store";
 import { Button } from "../components/ui/button";
@@ -24,6 +26,7 @@ export const SettingsPage = () => {
   const [defaultLogsPath, setDefaultLogsPath] = useState("");
   const [imageLoadingEnabled, setImageLoadingEnabledInput] = useState(false);
   const [guiOpacity, setGuiOpacityInput] = useState(1);
+  const [joinMessage, setJoinMessageInput] = useState("");
   const [appVersion, setAppVersion] = useState("Unknown");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -42,6 +45,7 @@ export const SettingsPage = () => {
           fallbackLogsPath,
           currentImageLoadingEnabled,
           currentGuiOpacity,
+          currentJoinMessage,
           currentVersion,
         ] = await Promise.all([
           getApiUrl(),
@@ -50,6 +54,7 @@ export const SettingsPage = () => {
           invoke<string>("get_default_roblox_logs_path"),
           getImageLoadingEnabled(),
           getGuiOpacity(),
+          getJoinMessage(),
           getVersion(),
         ]);
 
@@ -60,6 +65,7 @@ export const SettingsPage = () => {
         setLogsPathInput((storedLogsPath || currentLogsPath).trim());
         setImageLoadingEnabledInput(currentImageLoadingEnabled);
         setGuiOpacityInput(currentGuiOpacity);
+        setJoinMessageInput(currentJoinMessage);
         setInitialGuiOpacity(currentGuiOpacity);
         setAppVersion(currentVersion);
       } catch (loadError) {
@@ -81,6 +87,7 @@ export const SettingsPage = () => {
       const normalizedApiUrl = await setApiUrl(apiUrl);
       const nextLogsPath = (logsPath.trim() || defaultLogsPath).trim();
       const nextOpacity = await setGuiOpacity(guiOpacity);
+      const nextJoinMessage = await setJoinMessage(joinMessage);
       const shouldReload = normalizedApiUrl !== initialApiUrl;
 
       await invoke("set_roblox_logs_path", { path: nextLogsPath });
@@ -91,6 +98,7 @@ export const SettingsPage = () => {
       setLogsPathInput(nextLogsPath);
       setActiveLogsPath(nextLogsPath);
       setGuiOpacityInput(nextOpacity);
+      setJoinMessageInput(nextJoinMessage);
       document.documentElement.style.setProperty(
         "--gui-opacity",
         nextOpacity.toString(),
@@ -182,6 +190,23 @@ export const SettingsPage = () => {
                 </p>
               </div>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="join-message" className="text-sm font-medium">
+              Auto Join Message
+            </label>
+            <input
+              id="join-message"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              value={joinMessage}
+              onChange={(event) => setJoinMessageInput(event.target.value)}
+              disabled={isLoading || isSaving}
+              placeholder="joined the channel"
+            />
+            <p className="text-xs text-muted-foreground">
+              Sent automatically when your Job ID changes.
+            </p>
           </div>
 
           <div className="space-y-2">
