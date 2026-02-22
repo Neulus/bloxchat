@@ -2,13 +2,19 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import {
+  type ChatInputMode,
+  type ChatKeyPersistenceMode,
   DEFAULT_API_HOST,
   getApiUrl,
+  getChatInputMode,
+  getChatKeyPersistenceMode,
   getGuiOpacity,
   getImageLoadingEnabled,
   getJoinMessage,
   getLogsPath,
   setApiUrl,
+  setChatInputMode,
+  setChatKeyPersistenceMode,
   setGuiOpacity,
   setImageLoadingEnabled,
   setJoinMessage,
@@ -27,6 +33,10 @@ export const SettingsPage = () => {
   const [imageLoadingEnabled, setImageLoadingEnabledInput] = useState(false);
   const [guiOpacity, setGuiOpacityInput] = useState(1);
   const [joinMessage, setJoinMessageInput] = useState("");
+  const [chatKeyPersistenceMode, setChatKeyPersistenceModeInput] =
+    useState<ChatKeyPersistenceMode>("full");
+  const [chatInputMode, setChatInputModeInput] =
+    useState<ChatInputMode>("focusless");
   const [appVersion, setAppVersion] = useState("Unknown");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -46,6 +56,8 @@ export const SettingsPage = () => {
           currentImageLoadingEnabled,
           currentGuiOpacity,
           currentJoinMessage,
+          currentChatKeyPersistenceMode,
+          currentChatInputMode,
           currentVersion,
         ] = await Promise.all([
           getApiUrl(),
@@ -55,6 +67,8 @@ export const SettingsPage = () => {
           getImageLoadingEnabled(),
           getGuiOpacity(),
           getJoinMessage(),
+          getChatKeyPersistenceMode(),
+          getChatInputMode(),
           getVersion(),
         ]);
 
@@ -66,6 +80,8 @@ export const SettingsPage = () => {
         setImageLoadingEnabledInput(currentImageLoadingEnabled);
         setGuiOpacityInput(currentGuiOpacity);
         setJoinMessageInput(currentJoinMessage);
+        setChatKeyPersistenceModeInput(currentChatKeyPersistenceMode);
+        setChatInputModeInput(currentChatInputMode);
         setInitialGuiOpacity(currentGuiOpacity);
         setAppVersion(currentVersion);
       } catch (loadError) {
@@ -88,6 +104,9 @@ export const SettingsPage = () => {
       const nextLogsPath = (logsPath.trim() || defaultLogsPath).trim();
       const nextOpacity = await setGuiOpacity(guiOpacity);
       const nextJoinMessage = await setJoinMessage(joinMessage);
+      const nextKeyPersistence =
+        await setChatKeyPersistenceMode(chatKeyPersistenceMode);
+      const nextChatInputMode = await setChatInputMode(chatInputMode);
       const shouldReload = normalizedApiUrl !== initialApiUrl;
 
       await invoke("set_roblox_logs_path", { path: nextLogsPath });
@@ -99,6 +118,8 @@ export const SettingsPage = () => {
       setActiveLogsPath(nextLogsPath);
       setGuiOpacityInput(nextOpacity);
       setJoinMessageInput(nextJoinMessage);
+      setChatKeyPersistenceModeInput(nextKeyPersistence);
+      setChatInputModeInput(nextChatInputMode);
       document.documentElement.style.setProperty(
         "--gui-opacity",
         nextOpacity.toString(),
@@ -210,6 +231,57 @@ export const SettingsPage = () => {
           </div>
 
           <div className="space-y-2">
+            <label
+              htmlFor="chat-key-persistence-mode"
+              className="text-sm font-medium"
+            >
+              Slash Chat Key Persistence
+            </label>
+            <select
+              id="chat-key-persistence-mode"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              value={chatKeyPersistenceMode}
+              onChange={(event) =>
+                setChatKeyPersistenceModeInput(
+                  event.target.value as ChatKeyPersistenceMode,
+                )
+              }
+              disabled={isLoading || isSaving}
+            >
+              <option value="full">Full (preserve all held keys)</option>
+              <option value="wasd">WASD only</option>
+              <option value="none">None</option>
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Determines which currently held keys stay pressed in Roblox after
+              pressing <code>/</code> to chat.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="chat-input-mode" className="text-sm font-medium">
+              Slash Chat Input Mode
+            </label>
+            <select
+              id="chat-input-mode"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              value={chatInputMode}
+              onChange={(event) =>
+                setChatInputModeInput(event.target.value as ChatInputMode)
+              }
+              disabled={isLoading || isSaving}
+            >
+              <option value="focusless">
+                Focusless (Roblox keeps focus, custom input)
+              </option>
+              <option value="ime">IME Assist (focus chat for composition)</option>
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Use IME Assist for full native CJK composition behavior.
+            </p>
+          </div>
+
+          <div className="space-y-2">
             <label htmlFor="gui-opacity" className="text-sm font-medium">
               GUI Opacity
             </label>
@@ -220,8 +292,8 @@ export const SettingsPage = () => {
                 max={1}
                 step={0.02}
                 value={[guiOpacity]}
-                onValueChange={(event) => {
-                  const nextValue = Number(event[0]);
+                onValueChange={(values: number[]) => {
+                  const nextValue = Number(values[0]);
                   setGuiOpacityInput(nextValue);
                   document.documentElement.style.setProperty(
                     "--gui-opacity",

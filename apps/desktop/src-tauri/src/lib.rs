@@ -1,14 +1,13 @@
 mod commands;
+mod input;
 mod media;
 mod roblox;
 mod updater;
 
 use commands::*;
-use rdev::{listen, Event, EventType};
 use std::path::PathBuf;
 use std::sync::{mpsc, Mutex};
-use tauri::AppHandle;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 #[cfg(desktop)]
 use tauri_plugin_deep_link::DeepLinkExt;
 
@@ -30,6 +29,7 @@ pub fn run() {
             logs_path: Mutex::new(initial_logs_path.clone()),
             watcher_control: Mutex::new(Some(watcher_control_tx)),
         })
+        .manage(input::InputCaptureState::default())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_app_exit::init())
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -37,7 +37,8 @@ pub fn run() {
         .setup(move |app| {
             tauri::async_runtime::spawn(updater::check_for_startup_update(app.handle().clone()));
             roblox::start_log_watcher(initial_logs_path.clone(), watcher_control_rx);
-            start_key_listener(app.handle().clone());
+            let input_state = app.state::<input::InputCaptureState>().inner().clone();
+            input::start_key_listener(app.handle().clone(), input_state);
             #[cfg(desktop)]
             app.deep_link().register("bloxchat")?;
             Ok(())
@@ -46,6 +47,10 @@ pub fn run() {
             greet,
             should_steal_focus,
             focus_roblox,
+            start_chat_capture,
+            stop_chat_capture,
+            read_clipboard_text,
+            write_clipboard_text,
             is_image,
             get_default_roblox_logs_path,
             get_roblox_logs_path,
@@ -54,19 +59,4 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-fn start_key_listener(app: AppHandle) {
-    std::thread::spawn(move || {
-        let callback = move |event: Event| {
-            if let EventType::KeyPress(key) = event.event_type {
-                let key_name = format!("{key:?}");
-                let _ = app.emit("key-pressed", key_name);
-            }
-        };
-
-        if let Err(err) = listen(callback) {
-            eprintln!("Error in global shortcut listener: {:?}", err);
-        }
-    });
 }

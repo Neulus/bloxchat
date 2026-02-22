@@ -1,59 +1,65 @@
 "use client";
 
 import * as React from "react";
-import { Slider as SliderPrimitive } from "radix-ui";
-
 import { cn } from "../../lib/utils";
 
-function Slider({
-  className,
-  defaultValue,
-  value,
-  min = 0,
-  max = 100,
-  ...props
-}: React.ComponentProps<typeof SliderPrimitive.Root>) {
-  const _values = React.useMemo(
-    () =>
-      Array.isArray(value)
-        ? value
-        : Array.isArray(defaultValue)
-          ? defaultValue
-          : [min, max],
-    [value, defaultValue, min, max],
-  );
+type SliderProps = {
+  id?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  value?: number[];
+  defaultValue?: number[];
+  disabled?: boolean;
+  className?: string;
+  onValueChange?: (value: number[]) => void;
+};
 
-  return (
-    <SliderPrimitive.Root
-      data-slot="slider"
-      defaultValue={defaultValue}
-      value={value}
-      min={min}
-      max={max}
-      className={cn(
-        "data-[orientation=vertical]:min-h-40 relative flex w-full touch-none items-center select-none data-disabled:opacity-50 data-[orientation=vertical]:h-full data-[orientation=vertical]:w-auto data-[orientation=vertical]:flex-col",
-        className,
-      )}
-      {...props}
-    >
-      <SliderPrimitive.Track
-        data-slot="slider-track"
-        className="bg-muted rounded-full data-[orientation=horizontal]:h-1 data-[orientation=vertical]:w-1 relative grow overflow-hidden data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full"
-      >
-        <SliderPrimitive.Range
-          data-slot="slider-range"
-          className="bg-brand/50 absolute select-none data-[orientation=horizontal]:h-full data-[orientation=vertical]:w-full"
-        />
-      </SliderPrimitive.Track>
-      {Array.from({ length: _values.length }, (_, index) => (
-        <SliderPrimitive.Thumb
-          data-slot="slider-thumb"
-          key={index}
-          className="ring-brand/50 relative size-3 rounded-full bg-brand transition-[color,box-shadow] after:absolute after:-inset-2 hover:ring-3 focus-visible:ring-3 focus-visible:outline-hidden active:ring-3 block shrink-0 select-none disabled:pointer-events-none disabled:opacity-50"
-        />
-      ))}
-    </SliderPrimitive.Root>
-  );
-}
+const Slider = React.forwardRef<HTMLInputElement, SliderProps>(
+  (
+    {
+      id,
+      min = 0,
+      max = 100,
+      step = 1,
+      value,
+      defaultValue,
+      disabled,
+      className,
+      onValueChange,
+    },
+    ref,
+  ) => {
+    const currentValue = React.useMemo(() => {
+      if (Array.isArray(value) && value.length > 0) return Number(value[0]);
+      if (Array.isArray(defaultValue) && defaultValue.length > 0) {
+        return Number(defaultValue[0]);
+      }
+      return min;
+    }, [defaultValue, min, value]);
+
+    return (
+      <input
+        ref={ref}
+        id={id}
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={currentValue}
+        disabled={disabled}
+        onChange={(event) => {
+          onValueChange?.([Number(event.target.value)]);
+        }}
+        className={cn(
+          "h-2 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-brand disabled:cursor-not-allowed disabled:opacity-50",
+          className,
+        )}
+      />
+    );
+  },
+);
+
+Slider.displayName = "Slider";
 
 export { Slider };

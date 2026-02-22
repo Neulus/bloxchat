@@ -1,4 +1,5 @@
 use crate::media::MediaProbe;
+use crate::input::InputCaptureState;
 use crate::roblox::LogSettingsState;
 use tauri::AppHandle;
 
@@ -51,6 +52,42 @@ pub(crate) fn should_steal_focus(app: AppHandle) -> bool {
 #[tauri::command]
 pub(crate) fn focus_roblox() -> bool {
     crate::roblox::focus_roblox()
+}
+
+#[tauri::command]
+pub(crate) fn start_chat_capture(
+    mode: String,
+    input_mode: String,
+    state: tauri::State<InputCaptureState>,
+) -> Result<(), String> {
+    to_cmd(crate::input::start_chat_capture(&*state, &mode, &input_mode))
+}
+
+#[tauri::command]
+pub(crate) fn stop_chat_capture(
+    reason: Option<String>,
+    state: tauri::State<InputCaptureState>,
+) -> Result<(), String> {
+    let _ = reason;
+    to_cmd(crate::input::stop_chat_capture(&*state))
+}
+
+#[tauri::command]
+pub(crate) fn read_clipboard_text() -> Result<String, String> {
+    to_cmd(
+        arboard::Clipboard::new()
+            .and_then(|mut clipboard| clipboard.get_text())
+            .map_err(anyhow::Error::from),
+    )
+}
+
+#[tauri::command]
+pub(crate) fn write_clipboard_text(value: String) -> Result<(), String> {
+    to_cmd(
+        arboard::Clipboard::new()
+            .and_then(|mut clipboard| clipboard.set_text(value))
+            .map_err(anyhow::Error::from),
+    )
 }
 
 #[tauri::command]

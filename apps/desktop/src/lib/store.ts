@@ -2,6 +2,8 @@ import type { RouterOutputs } from "@bloxchat/api";
 import { load } from "@tauri-apps/plugin-store";
 
 export type AuthSession = RouterOutputs["auth"]["login"];
+export type ChatKeyPersistenceMode = "full" | "wasd" | "none";
+export type ChatInputMode = "focusless" | "ime";
 
 type StoreSchema = {
   auth: AuthSession | null;
@@ -11,6 +13,8 @@ type StoreSchema = {
   guiOpacity: number;
   joinMessage: string;
   favoritedMedia: string[];
+  chatKeyPersistenceMode: ChatKeyPersistenceMode;
+  chatInputMode: ChatInputMode;
 };
 
 export const DEFAULT_API_HOST = "bloxchat.logix.lol";
@@ -24,6 +28,8 @@ const defaults: StoreSchema = {
   guiOpacity: 1,
   joinMessage: "joined the channel",
   favoritedMedia: [],
+  chatKeyPersistenceMode: "full",
+  chatInputMode: "focusless",
 };
 
 const storePromise = load("store.json", {
@@ -115,6 +121,40 @@ export const setGuiOpacity = async (value: number) => {
 };
 
 export const getFavoritedMedia = async () => storeGet("favoritedMedia");
+
+const normalizeChatKeyPersistenceMode = (
+  value: unknown,
+): ChatKeyPersistenceMode => {
+  if (value === "none" || value === "wasd" || value === "full") {
+    return value;
+  }
+  return defaults.chatKeyPersistenceMode;
+};
+
+const normalizeChatInputMode = (value: unknown): ChatInputMode => {
+  if (value === "focusless" || value === "ime") return value;
+  return defaults.chatInputMode;
+};
+
+export const getChatKeyPersistenceMode = async () =>
+  normalizeChatKeyPersistenceMode(await storeGet("chatKeyPersistenceMode"));
+
+export const setChatKeyPersistenceMode = async (
+  value: ChatKeyPersistenceMode,
+) => {
+  const normalized = normalizeChatKeyPersistenceMode(value);
+  await storeSet("chatKeyPersistenceMode", normalized);
+  return normalized;
+};
+
+export const getChatInputMode = async () =>
+  normalizeChatInputMode(await storeGet("chatInputMode"));
+
+export const setChatInputMode = async (value: ChatInputMode) => {
+  const normalized = normalizeChatInputMode(value);
+  await storeSet("chatInputMode", normalized);
+  return normalized;
+};
 
 export const getJoinMessage = async () => storeGet("joinMessage");
 
