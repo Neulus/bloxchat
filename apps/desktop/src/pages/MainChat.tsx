@@ -332,7 +332,7 @@ export const MainChat = () => {
             type="button"
             size="icon"
             variant="ghost"
-            className="mr-1"
+            className="mr-0.5"
             onClick={() => setShowFavoritesPanel((prev) => !prev)}
             title="Favorited media"
           >
