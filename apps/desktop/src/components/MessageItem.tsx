@@ -41,7 +41,7 @@ export const MessageAuthor = ({
   if (isContinuation) return null;
 
   return (
-    <span className="relative inline-grid text-sm font-bold leading-none mb-1">
+    <span className="relative inline-grid mb-1 text-sm font-bold leading-none text-foreground chat-readable-text">
       <span className="transition-opacity duration-150 ease-out group-hover/message-head:opacity-0">
         {displayName}
       </span>
@@ -167,7 +167,7 @@ export const MessageItem = ({
             isContinuation={isContinuation}
           />
 
-          <div className="text-sm leading-relaxed wrap-break-word">
+          <div className="wrap-break-word text-sm leading-relaxed text-foreground/95 chat-readable-text">
             <FormattedText
               content={message.content}
               imageUrls={mediaSourceUrls}

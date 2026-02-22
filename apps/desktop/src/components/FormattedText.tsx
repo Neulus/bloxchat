@@ -135,16 +135,16 @@ export const FormattedText = ({
   const toneClasses =
     tone === "error"
       ? {
-          text: "text-red-400",
-          link: "text-red-400 underline",
-          mentionSelf: "text-red-400",
-          mentionOther: "text-red-400",
+          text: "text-red-300",
+          link: "text-red-200 underline decoration-red-100/80 underline-offset-2",
+          mentionSelf: "text-red-200",
+          mentionOther: "text-red-200",
         }
       : {
-          text: "text-muted-foreground",
-          link: "text-blue-500 underline",
-          mentionSelf: "text-amber-500",
-          mentionOther: "text-blue-300",
+          text: "text-foreground/95",
+          link: "text-sky-300 underline decoration-sky-200/80 underline-offset-2",
+          mentionSelf: "text-amber-300",
+          mentionOther: "text-cyan-200",
         };
 
   const normalizedContent = replaceEmojiShortcodes(content);

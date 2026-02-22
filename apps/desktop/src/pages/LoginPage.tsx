@@ -28,9 +28,11 @@ export const LoginPage = () => {
       <div className="flex flex-col items-center justify-center h-full p-8 text-center">
         <img src="/app-icon.png" className="w-32 h-32 mb-8" />
         <h1 className="text-2xl mb-2 font-bold">
-          Welcome back, {user.username}!
+          Welcome back,
+          <br />
+          {user.username}
         </h1>
-        <p className="text-muted-foreground text-sm mb-8">You are logged in.</p>
+        <p className="text-muted-foreground text-sm mb-6">You are logged in.</p>
         <Button onClick={() => nav("/")}>
           <LuMessageCircle size={16} />
           Go to chat
@@ -44,7 +46,7 @@ export const LoginPage = () => {
       <img src="/app-icon.png" className="w-32 h-32 mb-8 animate-pulse" />
 
       <h1 className="text-2xl mb-2 font-bold">Welcome to BloxChat</h1>
-      <p className="text-muted-foreground text-sm mb-8">
+      <p className="text-muted-foreground text-sm mb-6">
         Please sign in to continue
       </p>
 

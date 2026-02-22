@@ -122,11 +122,11 @@ export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
               ? "globally. If you're in a server, try rejoining."
               : `job id ${currentJobId}`
           }`}
-          className="h-10 w-full outline-none text-primary text-sm px-2"
+          className="h-10 w-full outline-none text-primary text-sm px-2 pr-16"
         />
 
         <div
-          className={`absolute right-2 -top-5 text-[10px] ${
+          className={`absolute right-2 top-1/2 -translate-y-1/2 text-[10px] ${
             isOverLimit ? "text-red-400" : "text-muted-foreground"
           }`}
         >
@@ -172,3 +172,4 @@ export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
 );
 
 ChatInput.displayName = "ChatInput";
+
