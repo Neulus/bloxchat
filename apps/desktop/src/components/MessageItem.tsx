@@ -1,4 +1,4 @@
-import { ChatMessage } from "@bloxchat/api";
+import type { UiChatMessage } from "../contexts/ChatContext";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { FormattedText } from "./FormattedText";
@@ -21,7 +21,7 @@ type DetectedMedia = {
 };
 
 interface MessageItemProps {
-  message: ChatMessage;
+  message: UiChatMessage;
   isContinuation?: boolean;
   onToggleFavoriteMedia?: (url: string) => void;
   isMediaFavorited?: (url: string) => boolean;
@@ -38,17 +38,16 @@ export const MessageAuthor = ({
   username,
   isContinuation,
 }: MessageAuthorProps) => {
-  const [isHovered, setIsHovered] = useState(false);
-
   if (isContinuation) return null;
 
   return (
-    <span
-      className={`font-bold text-sm`}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
-      {isHovered ? username : displayName}
+    <span className="relative inline-grid text-sm font-bold leading-none mb-1">
+      <span className="transition-opacity duration-150 ease-out group-hover/message-head:opacity-0">
+        {displayName}
+      </span>
+      <span className="absolute inset-0 opacity-0 transition-opacity duration-150 ease-out group-hover/message-head:opacity-100">
+        {username}
+      </span>
     </span>
   );
 };
@@ -61,6 +60,8 @@ export const MessageItem = ({
 }: MessageItemProps) => {
   const [mediaUrls, setMediaUrls] = useState<DetectedMedia[]>([]);
   const { user } = useAuth();
+  const isSending = message.localStatus === "sending";
+  const isFailed = message.localStatus === "failed";
 
   useEffect(() => {
     let cancelled = false;
@@ -114,7 +115,7 @@ export const MessageItem = ({
     return () => {
       cancelled = true;
     };
-  }, [message]);
+  }, [message.content]);
 
   const mediaSourceUrls = mediaUrls.map((media) => media.sourceUrl);
 
@@ -128,20 +129,33 @@ export const MessageItem = ({
         group w-full px-4 transition-colors
         ${isMentioned ? "bg-amber-300/10 hover:bg-amber-300/20" : "hover:bg-muted/50"}
         ${isContinuation ? "mt-0" : "mt-2"}
+        ${isSending ? "opacity-70" : ""}
       `}
     >
-      <div className="flex items-start gap-3 py-0">
+      <div
+        className={`flex items-start gap-3 py-0 ${isContinuation ? "" : "group/message-head"}`}
+      >
         {!isContinuation ? (
-          <img
-            src={message.author.picture}
-            alt="avatar"
-            className="w-10 h-10 rounded-full mt-1 shrink-0"
+          <button
+            type="button"
+            className="relative shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand focus-visible:ring-offset-2"
             onClick={() =>
               openUrl(
                 `https://roblox.com/users/${message.author.robloxUserId}/profile`,
               )
             }
-          />
+            title="Open profile"
+            aria-label={`Open ${message.author.displayName}'s profile`}
+          >
+            <img
+              src={message.author.picture}
+              alt={`${message.author.displayName} avatar`}
+              className="h-10 w-10 rounded-full cursor-pointer transition duration-150 ease-out group-hover/message-head:ring-2 group-hover/message-head:ring-brand/40"
+            />
+            <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-full bg-black/0 text-[10px] font-semibold text-white opacity-0 transition-opacity duration-150 ease-out group-hover/message-head:bg-black/35 group-hover/message-head:opacity-100">
+              Profile
+            </span>
+          </button>
         ) : (
           <div className="w-10 shrink-0" />
         )}
@@ -153,23 +167,24 @@ export const MessageItem = ({
             isContinuation={isContinuation}
           />
 
-          <div className="text-sm leading-relaxed">
+          <div className="text-sm leading-relaxed wrap-break-word">
             <FormattedText
               content={message.content}
               imageUrls={mediaSourceUrls}
+              tone={isFailed ? "error" : "default"}
             />
           </div>
 
           {mediaUrls.map((media) => (
             <div
               key={media.sourceUrl}
-              className="mt-2 relative group/media w-fit"
+              className="mt-2 relative group/media w-fit max-w-full"
             >
               <a
                 href={media.sourceUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block"
+                className="block max-w-full"
               >
                 {media.kind === "video" ? (
                   <video
@@ -178,7 +193,7 @@ export const MessageItem = ({
                     loop
                     muted
                     playsInline
-                    className="max-w-md max-h-40 rounded-lg border border-border object-contain bg-muted/20"
+                    className="block max-w-full sm:max-w-md max-h-40 rounded-lg border border-border object-contain bg-muted/20"
                   />
                 ) : (
                   <img
@@ -186,7 +201,7 @@ export const MessageItem = ({
                     alt="embedded content"
                     loading="lazy"
                     decoding="async"
-                    className="max-w-md max-h-40 rounded-lg border border-border object-contain bg-muted/20"
+                    className="block max-w-full sm:max-w-md max-h-40 rounded-lg border border-border object-contain bg-muted/20"
                   />
                 )}
               </a>
@@ -205,7 +220,7 @@ export const MessageItem = ({
                 <Star
                   className={
                     isMediaFavorited?.(media.sourceUrl)
-                      ? "fill-amber-400 text-amber-400"
+                      ? "fill-brand text-brand"
                       : "text-foreground"
                   }
                 />
