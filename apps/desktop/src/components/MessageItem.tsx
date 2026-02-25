@@ -168,7 +168,7 @@ export const MessageItem = ({
               title="Jump to original message"
               aria-label="Jump to original message"
             >
-              <div className="absolute w-6 h-2 rounded-tl-[4px] border-muted-foreground left-9 top-2 border-t-2 border-l-2 group-hover/reply-preview:border-foreground/85"></div>
+              <div className="absolute w-6 h-2 rounded-tl-lg border-muted-foreground left-9 top-2 border-t-2 border-l-2 group-hover/reply-preview:border-foreground/85"></div>
               <span className="w-full truncate">
                 <span className="font-semibold text-foreground/80">
                   @{replyPreview.author}
@@ -180,7 +180,7 @@ export const MessageItem = ({
             </button>
           ) : (
             <div className="flex w-full items-center gap-2 text-xs text-muted-foreground">
-              <div className="absolute w-6 h-2 rounded-tl-[4px] border-muted-foreground left-9 top-2 border-t-2 border-l-2 hover:border-foreground"></div>
+              <div className="absolute w-6 h-2 rounded-tl-lg border-muted-foreground left-9 top-2 border-t-2 border-l-2 hover:border-foreground"></div>
               <span className="w-full truncate">
                 <span className="font-semibold text-foreground/80">
                   @{replyPreview.author}
@@ -197,7 +197,7 @@ export const MessageItem = ({
           {!isContinuation ? (
             <button
               type="button"
-              className="absolute pt-1 left-4 shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand focus-visible:ring-offset-2"
+              className="absolute pt-1 left-4 shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand focus-visible:ring-offset-2"
               onClick={() =>
                 openUrl(
                   `https://roblox.com/users/${message.author.robloxUserId}/profile`,
@@ -209,9 +209,9 @@ export const MessageItem = ({
               <img
                 src={message.author.picture}
                 alt={`${message.author.displayName} avatar`}
-                className="h-10 w-10 rounded-full cursor-pointer transition duration-150 ease-out group-hover/message-head:ring-2 group-hover/message-head:ring-brand/40"
+                className="h-10 w-10 rounded-full cursor-pointer transition duration-150 ease-out group-hover/message-head:ring-2 group-hover/message-head:ring-brand"
               />
-              <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-full bg-black/0 text-[10px] font-semibold text-white opacity-0 transition-opacity duration-150 ease-out group-hover/message-head:bg-black/35 group-hover/message-head:opacity-100">
+              <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-full bg-black/0 text-[10px] font-semibold text-white opacity-0 transition-opacity duration-150 ease-out group-hover/message-head:bg-black/35">
                 Profile
               </span>
             </button>
